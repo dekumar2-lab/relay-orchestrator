@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: relay-orchestrator
+  ai:
+    openai:
+      api-key: ${GITHUB_TOKEN}
+      base-url: https://models.inference.ai.azure.com
+      chat:
+        options:
+          model: gpt-4o-mini
+          max-tokens: 2000
+          temperature: 0.2
+
+server:
+  port: 8080
+
+relay:
+  budget:
+    max-input-tokens: 10000
+    max-output-tokens: 5000
+    monthly-credits: 1500
+  cors:
+    allowed-origins: http://localhost:4200
