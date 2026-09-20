@@ -1,14 +1,12 @@
 package com.relay.orchestrator.index;
 
-import com.github.javaparser.StaticJavaParser;
-import com.github.javaparser.ParserConfiguration;
-import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.body.EnumDeclaration;
-import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.relay.orchestrator.lang.CodeUnit;
+import com.relay.orchestrator.lang.LanguageRegistry;
+import com.relay.orchestrator.lang.LanguageSupport;
+import com.relay.orchestrator.lang.MethodUnit;
+import com.relay.orchestrator.lang.ParsedFile;
 import com.relay.orchestrator.logging.LogBroadcaster;
-import com.relay.orchestrator.logging.LogEvent; // Presumed domain log event wrapper type
+import com.relay.orchestrator.logging.LogEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -16,120 +14,120 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Optional;
+import java.util.stream.Stream;
 
+/**
+ * Language-agnostic repo indexer.
+ *
+ * Walks every file in the repo, asks LanguageRegistry which LanguageSupport
+ * handles it, parses it into ParsedFile, and stores the resulting CodeUnits
+ * and MethodUnits through IndexRepository.
+ *
+ * Zero JavaParser imports here - all language-specific logic lives in
+ * lang/java/JavaCodeParser.
+ */
 @Service
 public class RepoIndexerService {
 
     private static final Logger log = LoggerFactory.getLogger(RepoIndexerService.class);
+
     private final IndexRepository indexRepository;
+    private final LanguageRegistry languageRegistry;
     private final LogBroadcaster logBroadcaster;
 
-    public RepoIndexerService(IndexRepository indexRepository, LogBroadcaster logBroadcaster) {
+    public RepoIndexerService(IndexRepository indexRepository,
+            LanguageRegistry languageRegistry,
+            LogBroadcaster logBroadcaster) {
         this.indexRepository = indexRepository;
+        this.languageRegistry = languageRegistry;
         this.logBroadcaster = logBroadcaster;
     }
 
     public void indexRepository(String repoId, Path repoPath) throws Exception {
-        logBroadcaster.publish(LogEvent.info("Scanning repository details for workspace target: " + repoId + "..."));
+        logBroadcaster.publish(LogEvent.info(
+                "Scanning repository details for workspace target: " + repoId + "..."));
 
-        // 1. Clear out historic data rows to enable clean idempotent ingestion runs
         indexRepository.clearRepoIndex(repoId);
 
         if (!Files.exists(repoPath)) {
             throw new IOException("Target folder path does not exist on filesystem: " + repoPath);
         }
 
-        // 2. Identify all valid Java files across target subdirectory tree branches
-        List<Path> javaFiles = Files.walk(repoPath)
-                .filter(p -> Files.isRegularFile(p) && p.toString().endsWith(".java"))
-                .collect(Collectors.toList());
+        List<Path> candidateFiles;
+        try (Stream<Path> walk = Files.walk(repoPath)) {
+            candidateFiles = walk
+                    .filter(Files::isRegularFile)
+                    .filter(languageRegistry::isSupported)
+                    .toList();
+        }
 
-        logBroadcaster
-                .publish(LogEvent.info("Found " + javaFiles.size() + " Java source components to compile and map."));
+        logBroadcaster.publish(LogEvent.info(
+                "Found " + candidateFiles.size() + " source files matching registered languages."));
 
-        int indexedClassesCount = 0;
-        int indexedMethodsCount = 0;
+        int indexedClasses = 0;
+        int indexedMethods = 0;
 
-        StaticJavaParser.getParserConfiguration().setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_17);
+        for (Path file : candidateFiles) {
+            Optional<LanguageSupport> maybeLang = languageRegistry.forFile(file);
+            if (maybeLang.isEmpty()) {
+                continue;
+            }
+            LanguageSupport language = maybeLang.get();
 
-        for (Path file : javaFiles) {
             try {
-                CompilationUnit cu = StaticJavaParser.parse(file);
-                String packageName = cu.getPackageDeclaration().map(p -> p.getNameAsString()).orElse("");
-                String relativePath = repoPath.relativize(file).toString();
-
-                // Process standard Classes or Interfaces
-                List<ClassOrInterfaceDeclaration> classes = cu.findAll(ClassOrInterfaceDeclaration.class);
-                for (ClassOrInterfaceDeclaration typeDecl : classes) {
-                    long classId = parseAndStoreType(repoId, packageName, relativePath, typeDecl);
-                    indexedClassesCount++;
-                    indexedMethodsCount += parseAndStoreMethods(classId, typeDecl);
-                }
-
-                // Process Enums
-                List<EnumDeclaration> enums = cu.findAll(EnumDeclaration.class);
-                for (EnumDeclaration enumDecl : enums) {
-                    long classId = parseAndStoreEnum(repoId, packageName, relativePath, enumDecl);
-                    indexedClassesCount++;
-                }
-
+                ParsedFile parsed = language.parser().parse(file, repoPath);
+                StoreCounts counts = storeParsedFile(repoId, parsed);
+                indexedClasses += counts.classes;
+                indexedMethods += counts.methods;
             } catch (Exception e) {
-                // FAILED processing line catch per spec requirements: Log warning milestone and
-                // resume
-                String warningMsg = "Parsing failure skipped inside file '" + file.getFileName() + "': "
-                        + e.getMessage();
-                log.warn(warningMsg);
+                String warningMsg = "Parsing failure skipped inside file '" + file.getFileName()
+                        + "' (" + language.id() + "): " + e.getMessage();
+                log.warn(warningMsg, e);
                 logBroadcaster.publish(LogEvent.warn(warningMsg));
             }
         }
 
-        logBroadcaster.publish(LogEvent.success("Indexing pipeline successfully finalized for target [" + repoId
-                + "]. Found " + indexedClassesCount + " classes and " + indexedMethodsCount + " methods."));
+        logBroadcaster.publish(LogEvent.success(
+                "Indexing pipeline successfully finalized for target [" + repoId
+                        + "]. Found " + indexedClasses + " classes and "
+                        + indexedMethods + " methods."));
     }
 
-    private long parseAndStoreType(String repoId, String pkg, String path, ClassOrInterfaceDeclaration decl) {
-        String kind = decl.isInterface() ? "interface" : "class";
-        List<String> annos = decl.getAnnotations().stream().map(AnnotationExpr::getNameAsString)
-                .collect(Collectors.toList());
-        String extended = decl.getExtendedTypes().stream().map(t -> t.getNameAsString()).findFirst().orElse("");
-        List<String> implemented = decl.getImplementedTypes().stream().map(t -> t.getNameAsString())
-                .collect(Collectors.toList());
+    private StoreCounts storeParsedFile(String repoId, ParsedFile parsed) {
+        int classes = 0;
+        int methods = 0;
 
-        return indexRepository.insertClass(repoId, pkg, decl.getNameAsString(), path, kind, annos, extended,
-                implemented);
-    }
+        for (CodeUnit unit : parsed.units()) {
+            long classId = indexRepository.insertClass(
+                    repoId,
+                    unit.packageOrModule(),
+                    unit.simpleName(),
+                    unit.filePath(),
+                    unit.kind(),
+                    unit.annotations(),
+                    unit.extendsType(),
+                    unit.implementsTypes());
 
-    private long parseAndStoreEnum(String repoId, String pkg, String path, EnumDeclaration decl) {
-        List<String> annos = decl.getAnnotations().stream().map(AnnotationExpr::getNameAsString)
-                .collect(Collectors.toList());
-        return indexRepository.insertClass(repoId, pkg, decl.getNameAsString(), path, "enum", annos, "",
-                new ArrayList<>());
-    }
+            classes++;
 
-    private int parseAndStoreMethods(long classId, ClassOrInterfaceDeclaration decl) {
-        List<MethodDeclaration> methods = decl.getMethods();
-        for (MethodDeclaration m : methods) {
-            List<String> parameters = m.getParameters().stream()
-                    .map(p -> p.getTypeAsString() + " " + p.getNameAsString())
-                    .collect(Collectors.toList());
-
-            int startLine = m.getBegin().map(pos -> pos.line).orElse(0);
-            int endLine = m.getEnd().map(pos -> pos.line).orElse(0);
-
-            indexRepository.insertMethod(
-                    classId,
-                    m.getNameAsString(),
-                    m.getSignature().asString(),
-                    m.getTypeAsString(),
-                    parameters,
-                    startLine,
-                    endLine,
-                    new ArrayList<>() // Dependency code execution trace logic hook placeholder
-            );
+            for (MethodUnit m : unit.methods()) {
+                indexRepository.insertMethod(
+                        classId,
+                        m.name(),
+                        m.signature(),
+                        m.returnType(),
+                        m.parameters(),
+                        m.lineStart(),
+                        m.lineEnd(),
+                        m.callsOut());
+                methods++;
+            }
         }
-        return methods.size();
+        return new StoreCounts(classes, methods);
+    }
+
+    private record StoreCounts(int classes, int methods) {
     }
 }
