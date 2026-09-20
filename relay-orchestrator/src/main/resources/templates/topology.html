@@ -1,0 +1,135 @@
+<div th:fragment="content" class="space-y-6" x-data="topologyViewer()">
+    <div class="overflow-hidden rounded-xl border border-slate-800 bg-[#0f1524] shadow-2xl shadow-slate-950/40">
+        <div class="flex items-center justify-between border-b border-slate-800 bg-slate-950/60 px-6 py-4">
+            <div>
+                <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">Workspace</p>
+                <h1 class="mt-2 text-xl font-semibold text-white">Topology Map</h1>
+            </div>
+            <button type="button"
+                    @click="refresh()"
+                    class="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.18em] text-slate-200 transition hover:border-cyan-500/60 hover:text-cyan-300">
+                Refresh
+            </button>
+        </div>
+
+        <div class="min-h-[320px] p-6 font-mono text-sm">
+            <div x-show="loading" class="animate-pulse text-xs text-slate-500">
+                Querying local repository index and assembling workspace structure...
+            </div>
+
+            <div x-show="!loading &amp;&amp; Object.keys(treeData).length === 0"
+                 class="py-12 text-center text-xs italic text-slate-500">
+                No parsing data available. Map a local directory and run an index build step first.
+            </div>
+
+            <div x-show="!loading" class="space-y-4">
+                <template x-for="(packages, repoName) in treeData" :key="repoName">
+                    <div x-data="{ openRepo: true }" class="border-l border-slate-800 pl-3">
+                        <div @click="openRepo = !openRepo"
+                             class="flex cursor-pointer items-center gap-2 py-1 text-sm font-bold text-cyan-400 select-none hover:text-cyan-300">
+                            <span x-text="openRepo ? '▼' : '▶'" class="text-[9px] text-slate-500"></span>
+                            <span>🏗️</span>
+                            <span x-text="repoName"></span>
+                        </div>
+
+                        <div x-show="openRepo" class="mt-2 space-y-3 pl-4">
+                            <template x-for="(classesList, pkgName) in packages" :key="pkgName">
+                                <div x-data="{ openPkg: true }">
+                                    <div @click="openPkg = !openPkg"
+                                         class="flex cursor-pointer items-center gap-2 py-0.5 text-xs font-medium text-slate-300 hover:text-white select-none">
+                                        <span x-text="openPkg ? '▼' : '▶'" class="text-[8px] text-slate-500"></span>
+                                        <span class="text-amber-500">📦</span>
+                                        <span x-text="pkgName || '(default package)'"></span>
+                                    </div>
+
+                                    <div x-show="openPkg" class="mt-2 space-y-1.5 border-l border-slate-800/80 pl-5">
+                                        <template x-for="clazz in classesList" :key="clazz.class_id">
+                                            <div x-data="{ openClass: false, methods: [], loaded: false }">
+                                                <div @click="openClass = !openClass; if (openClass &amp;&amp; !loaded) loadMethodsList(clazz.class_id, $data)"
+                                                     class="flex cursor-pointer items-center gap-2 py-0.5 text-xs text-slate-400 hover:text-slate-200 select-none">
+                                                    <span class="text-teal-400">📄</span>
+                                                    <span x-text="clazz.class_name"></span>
+                                                    <span class="rounded bg-slate-800 px-1.5 py-0.5 text-[9px] font-bold text-slate-400 font-sans"
+                                                          x-text="clazz.method_count + ' methods'"></span>
+                                                </div>
+
+                                                <div x-show="openClass" class="ml-1.5 mt-1 space-y-1 border-l border-slate-800/80 pl-4">
+                                                    <template x-for="m in methods">
+                                                        <div class="flex items-center gap-1.5 text-[11px] text-slate-500">
+                                                            <span class="font-bold text-purple-400">ƒ</span>
+                                                            <span class="text-slate-400" x-text="m.signature"></span>
+                                                        </div>
+                                                    </template>
+                                                    <div x-show="methods.length === 0 &amp;&amp; loaded"
+                                                         class="pl-2 text-[11px] italic text-slate-600">
+                                                        No methods defined in this class.
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function topologyViewer() {
+            return {
+                loading: true,
+                treeData: {},
+                init() {
+                    this.refresh();
+                },
+                refresh() {
+                    this.loading = true;
+                    fetch('/topology/data')
+                        .then(function (response) {
+                            return response.json();
+                        })
+                        .then((data) => {
+                            this.treeData = this.groupDataIntoHierarchy(data);
+                            this.loading = false;
+                        })
+                        .catch(() => {
+                            this.loading = false;
+                            this.treeData = {};
+                        });
+                },
+                groupDataIntoHierarchy(flatData) {
+                    const grouped = {};
+                    flatData.forEach((item) => {
+                        const repo = item.repo_id || 'unknown-repository';
+                        const pkg = item.package_name || '(default package)';
+                        if (!grouped[repo]) {
+                            grouped[repo] = {};
+                        }
+                        if (!grouped[repo][pkg]) {
+                            grouped[repo][pkg] = [];
+                        }
+                        grouped[repo][pkg].push(item);
+                    });
+                    return grouped;
+                },
+                loadMethodsList(classId, componentState) {
+                    fetch('/topology/class/' + classId + '/methods')
+                        .then(function (response) {
+                            return response.json();
+                        })
+                        .then((methodsList) => {
+                            componentState.methods = methodsList || [];
+                            componentState.loaded = true;
+                        })
+                        .catch(() => {
+                            componentState.methods = [];
+                            componentState.loaded = true;
+                        });
+                }
+            };
+        }
+    </script>
+</div>

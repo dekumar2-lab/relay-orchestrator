@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relay Orchestrator - Connection</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/sse.js"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        base: '#0a0e1a',
+                        panel: '#0f1524',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-base text-slate-200 font-sans min-h-screen">
+<div th:fragment="content" class="max-w-4xl space-y-6 p-6">
+    <section class="rounded-lg border border-slate-800 bg-panel">
+        <div class="border-b border-slate-800 px-5 py-3">
+            <h2 class="text-sm font-semibold text-slate-300">Connection &amp; Prerequisites</h2>
+        </div>
+
+        <form id="connection-form" th:action="@{/connection/test}" th:object="${config}" method="post" class="space-y-5 px-5 py-5">
+            <div>
+                <label class="mb-1 block text-sm font-medium text-slate-200">Provider</label>
+                <div class="flex gap-3">
+                    <label th:each="providerOption : ${providerOptions}" class="inline-flex items-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200">
+                        <input type="radio" th:field="*{provider}" th:value="${providerOption}" class="text-cyan-400">
+                        <span th:text="${providerOption.label}">GitHub Copilot</span>
+                    </label>
+                </div>
+            </div>
+
+            <div th:if="${config.provider.name() == 'GITHUB_COPILOT'}">
+                <label class="mb-1 block text-sm font-medium text-slate-200">GitHub token</label>
+                <input type="password" th:field="*{githubToken}" class="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="github_pat_..." autocomplete="off">
+                <p class="mt-1.5 text-xs text-slate-500">A GitHub fine-grained personal access token. Generate one at <a href="https://github.com/settings/tokens?type=beta" target="_blank" class="text-cyan-400 hover:underline">github.com/settings/tokens</a> with the Copilot Requests permission.</p>
+            </div>
+
+            <div th:if="${config.provider.name() == 'CLAUDE_API'}">
+                <label class="mb-1 block text-sm font-medium text-slate-200">Anthropic API key</label>
+                <input type="password" th:field="*{anthropicApiKey}" class="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="sk-ant-..." autocomplete="off">
+                <p class="mt-1.5 text-xs text-slate-500">From console.anthropic.com/settings/keys</p>
+            </div>
+
+            <div>
+                <label class="mb-1 block text-sm font-medium text-slate-200">Model</label>
+                <input type="text" th:field="*{model}" class="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="claude-sonnet-4-5">
+                <p th:if="${config.provider.name() == 'GITHUB_COPILOT'}" class="mt-1.5 text-xs text-slate-500">The model to request from Copilot, e.g. claude-sonnet-4.5 or gpt-5.</p>
+                <p th:if="${config.provider.name() == 'CLAUDE_API'}" class="mt-1.5 text-xs text-slate-500">Claude model names, e.g. claude-sonnet-4-5 or claude-opus-4-5.</p>
+            </div>
+
+            <div>
+                <label class="mb-1 block text-sm font-medium text-slate-200">Workspace directory</label>
+                <input type="text" th:field="*{workspaceDir}" class="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="C:/workspace/relay-orchestrator">
+            </div>
+
+            <div>
+                <label class="mb-1 block text-sm font-medium text-slate-200">Request budget per run</label>
+                <input type="number" th:field="*{requestBudget}" min="1" class="w-32 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500">
+            </div>
+
+            <button type="button" id="test-connection-btn" class="rounded-md bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-cyan-400">Test Connection</button>
+        </form>
+    </section>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const form = document.getElementById('connection-form');
+            const button = document.getElementById('test-connection-btn');
+            if (!form || !button) return;
+
+            button.addEventListener('click', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+
+                const formData = new FormData(form);
+                const params = new URLSearchParams();
+                for (const [key, value] of formData.entries()) {
+                    params.append(key, value);
+                }
+
+                button.disabled = true;
+                button.textContent = 'Testing...';
+
+                fetch(form.action, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                    body: params.toString()
+                })
+                .then(async (response) => {
+                    const payload = await response.json().catch(() => ({ message: 'Connection test started.' }));
+                    if (!response.ok) {
+                        throw new Error(payload.message || 'Connection test failed.');
+                    }
+                    return payload;
+                })
+                .then((payload) => {
+                    alert(payload.message || 'Connection test started.');
+                })
+                .catch((error) => {
+                    alert(error.message || 'Connection test failed.');
+                })
+                .finally(() => {
+                    button.disabled = false;
+                    button.textContent = 'Test Connection';
+                });
+            });
+        });
+    </script>
+
+</div>
+</body>
+</html>

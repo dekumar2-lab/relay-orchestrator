@@ -1,8 +1,19 @@
-/* You can add global styles to this file, and also import other style files */
-@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
-body {
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
   background-color: #0A0A0F;
   color: #E2E8F0;
   font-family: 'Inter', sans-serif;
+  margin: 0;
+  padding: 0;
+  height: 100%;
 }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #141420; }
+::-webkit-scrollbar-thumb { background: #8B5CF6; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #7C3AED; }

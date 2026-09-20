@@ -1,0 +1,81 @@
+<div th:fragment="content" class="space-y-6">
+    <div class="grid grid-cols-3 gap-6">
+        <div class="rounded-xl border border-slate-800 bg-[#0f1524] p-5 shadow-lg">
+            <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Cumulative Cost Tracker</p>
+            <div class="mt-2 flex items-baseline justify-between">
+                <span class="text-2xl font-bold text-white font-mono" th:text="'$' + ${#numbers.formatDecimal(totalCost != null ? totalCost : 0.0, 1, 2)}">$0.00</span>
+                <span class="text-xs text-slate-400 font-mono">of $4.89 balance</span>
+            </div>
+        </div>
+
+        <div class="rounded-xl border border-slate-800 bg-[#0f1524] p-5 shadow-lg">
+            <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Token Consumption</p>
+            <div class="mt-2 flex items-baseline justify-between">
+                <span class="text-2xl font-bold text-cyan-400 font-mono" th:text="${totalTokens != null ? totalTokens : 0}">0</span>
+                <span class="text-xs text-slate-500 font-mono">tkns parsed</span>
+            </div>
+        </div>
+
+        <div class="rounded-xl border border-slate-800 bg-[#0f1524] p-5 shadow-lg">
+            <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Pipeline Budget Safety Cap</p>
+            <div class="mt-2 flex items-baseline justify-between">
+                <span class="text-2xl font-bold text-purple-400" th:text="${config != null ? config.requestBudget : 20}">20</span>
+                <span class="text-xs text-slate-500 font-mono">max requests/run</span>
+            </div>
+            <div class="mt-3 h-1 w-full bg-slate-950 rounded-full overflow-hidden">
+                <div class="h-full bg-purple-500 rounded-full" style="width: 10%"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-3 gap-6">
+        <div class="col-span-2 rounded-xl border border-slate-800 bg-[#0f1524] overflow-hidden shadow-2xl">
+            <div class="border-b border-slate-800 bg-slate-950/40 px-5 py-3">
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Agent Request Transaction Ledger</h3>
+            </div>
+            <div id="ledger-table-container" hx-ext="sse" sse-connect="/logs/stream" hx-get="/token-tracker/table-fragment" hx-trigger="sse:logline" hx-target="#ledger-rows" hx-swap="innerHTML" class="p-5 font-mono text-xs">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="border-b border-slate-800 text-slate-500 text-[10px] uppercase tracking-wider">
+                            <th class="pb-2">Timestamp</th>
+                            <th class="pb-2">Agent Context</th>
+                            <th class="pb-2">Model Target</th>
+                            <th class="pb-2 text-right">Tokens Used</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ledger-rows" th:fragment="ledger-rows" class="divide-y divide-slate-800/60 text-slate-300">
+                        <tr th:if="${transactions == null or transactions.empty}">
+                            <td colspan="4" class="py-6 text-center text-xs text-slate-600 italic">No transactions captured yet. Run a validation test.</td>
+                        </tr>
+                        <tr th:each="tx : ${transactions}" class="hover:bg-slate-900/20">
+                            <td class="py-2.5 text-slate-500 font-mono" th:text="${tx.timestamp != null ? #temporals.format(tx.timestamp, 'HH:mm:ss') : '00:00:00'}">01:44:50</td>
+                            <td class="py-2.5"><span class="px-1.5 py-0.5 rounded bg-cyan-950/40 text-cyan-400 border border-cyan-900/60 text-[10px] font-sans font-bold" th:text="${tx.agentName}">PROBE_CONN</span></td>
+                            <td class="py-2.5 text-slate-300 font-mono" th:text="${tx.model}">claude-3-haiku</td>
+                            <td class="py-2.5 text-right font-bold text-slate-400 font-mono" th:text="${tx.tokensUsed != null ? #numbers.formatInteger(tx.tokensUsed, 0, 'COMMA') : '0'}">142</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="col-span-1 rounded-xl border border-slate-800 bg-[#0f1524] p-5 space-y-4 shadow-2xl">
+            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider">⚡ Token Optimization</h4>
+            <div class="space-y-3 font-mono">
+                <div class="bg-[#131b2e]/40 border border-slate-800 p-3 rounded">
+                    <p class="text-xs font-medium text-slate-300">Caveman Slicer</p>
+                    <div class="flex justify-between items-baseline mt-1">
+                        <span class="text-xl font-bold text-emerald-400">65%</span>
+                        <span class="text-[10px] text-slate-500">-12.4k tkns</span>
+                    </div>
+                </div>
+                <div class="bg-[#131b2e]/40 border border-slate-800 p-3 rounded">
+                    <p class="text-xs font-medium text-slate-300">Ponytail Minimizer</p>
+                    <div class="flex justify-between items-baseline mt-1">
+                        <span class="text-xl font-bold text-amber-400">54%</span>
+                        <span class="text-[10px] text-slate-500">-8.1k tkns</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

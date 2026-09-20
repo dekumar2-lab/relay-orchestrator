@@ -12,7 +12,7 @@ spring:
           temperature: 0.2
 
 server:
-  port: 8080
+  port: 8081
 
 relay:
   budget:
@@ -21,3 +21,12 @@ relay:
     monthly-credits: 1500
   cors:
     allowed-origins: http://localhost:4200
+
+logging:
+  level:
+    root: INFO
+    com.relay: DEBUG
+    org.springframework.ai: DEBUG
+    org.springframework.ai.openai: TRACE
+    org.springframework.web.reactive.function.client: DEBUG
+    reactor.netty.http.client: DEBUG

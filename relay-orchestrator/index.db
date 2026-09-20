@@ -1,0 +1,8 @@
+spring:
+  datasource:
+    url: jdbc:sqlite:${user.home}/.relay-orchestrator/index.db
+    driver-class-name: org.sqlite.JDBC
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql

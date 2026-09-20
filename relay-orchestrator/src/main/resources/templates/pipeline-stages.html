@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+<div th:fragment="content" class="grid grid-cols-3 gap-6" x-data="{ running: false }">
+    
+    <!-- Left 2 Columns: Story Input Box & Live Pipeline Steps Tracker -->
+    <div class="col-span-2 space-y-6">
+        <div class="rounded-xl border border-slate-800 bg-[#0f1524] shadow-2xl">
+            <div class="border-b border-slate-800 bg-slate-950/40 px-5 py-3 flex justify-between items-center">
+                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Feature Story Command Input</h3>
+                <span class="rounded bg-cyan-950/50 border border-cyan-900/40 px-2 py-0.5 text-[10px] text-cyan-400 font-mono">Phase 4 Agentic Loop</span>
+            </div>
+            
+            <!-- Uses your background HTMX orchestration trigger smoothly -->
+            <form hx-post="/orchestrate/run" hx-swap="none" class="p-5 space-y-4" @submit="running = true" hx-on::after-request="running = false">
+                <div>
+                    <label class="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">User Feature Specification / Issue Story Description</label>
+                    <textarea name="storyInput" rows="6" required
+                              class="w-full font-mono rounded bg-slate-950 border border-slate-800 p-4 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 resize-none leading-relaxed" 
+                              placeholder="Paste feature requirement document or bug ticket details here... (e.g., 'Implement an automated email alert inside the ComplexityClassifier transaction stream loop.')"></textarea>
+                </div>
+                
+                <div class="flex justify-between items-center pt-2">
+                    <p class="text-[11px] text-slate-500 leading-relaxed italic max-w-sm font-sans">
+                        Submitting kicks off the automated <strong>Clarifier → Architect → Developer</strong> pipeline loop.
+                    </p>
+                    <button type="submit" :disabled="running"
+                            class="bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 font-bold px-5 py-2.5 rounded text-xs uppercase tracking-wider transition-all shadow-lg shadow-cyan-950/40 cursor-pointer">
+                        <span x-show="!running">Execute Agent Run</span>
+                        <span x-show="running" style="display: none;" class="flex items-center gap-1.5 animate-pulse"><span class="h-2 w-2 rounded-full bg-slate-950 animate-ping"></span> Orchestrating...</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Right Column Panel: Token Optimization Matrix Sidebar Pane -->
+    <div class="col-span-1 space-y-6">
+        <div class="rounded-xl border border-slate-800 bg-[#0f1524] p-5 space-y-4 shadow-xl">
+            <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider">⚡ Token Optimization</h4>
+            <div class="space-y-3 font-mono">
+                <div class="bg-[#131b2e]/40 border border-slate-800 p-3 rounded">
+                    <p class="text-xs font-medium text-slate-300">Caveman Slicer</p>
+                    <div class="flex justify-between items-baseline mt-1">
+                        <span class="text-xl font-bold text-emerald-400">65%</span>
+                        <span class="text-[10px] text-slate-500">-12.4k tkns</span>
+                    </div>
+                </div>
+                <div class="bg-[#131b2e]/40 border border-slate-800 p-3 rounded">
+                    <p class="text-xs font-medium text-slate-300">Ponytail Minimizer</p>
+                    <div class="flex justify-between items-baseline mt-1">
+                        <span class="text-xl font-bold text-amber-400">54%</span>
+                        <span class="text-[10px] text-slate-500">-8.1k tkns</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,37 @@
+{
+  "projects": {
+    "cui": {
+      "classes": {
+        "WorkbasketComponent": {
+          "filePath": "src/app/workbasket/workbasket.component.ts",
+          "templateFile": "src/app/workbasket/workbasket.component.html",
+          "methods": ["ngOnInit", "loadBasket", "removeItem"],
+          "downstreamCount": 0,
+          "language": "typescript"
+        },
+        "ConfirmClientDataComponent": {
+          "filePath": "src/app/confirm-client-data/confirm-client-data.component.ts",
+          "methods": ["ngOnInit"],
+          "downstreamCount": 0,
+          "language": "typescript"
+        }
+      }
+    },
+    "payment-service": {
+      "classes": {
+        "PaymentService": {
+          "filePath": "src/main/java/com/payment/PaymentService.java",
+          "methods": ["processPayment", "validateCard", "refund"],
+          "downstreamCount": 3,
+          "language": "java"
+        },
+        "PaymentClient": {
+          "filePath": "src/main/java/com/payment/client/PaymentClient.java",
+          "methods": ["pay", "refund"],
+          "downstreamCount": 2,
+          "language": "java"
+        }
+      }
+    }
+  }
+}

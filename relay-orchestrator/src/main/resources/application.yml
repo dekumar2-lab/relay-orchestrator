@@ -1,0 +1,23 @@
+server:
+  port: 8081
+
+api:
+  key: REDACTED
+
+spring:
+  application:
+    name: relay-orchestrator
+  thymeleaf:
+    cache: false
+  datasource:
+    url: jdbc:sqlite:${user.home}/.relay-orchestrator/index.db
+    driver-class-name: org.sqlite.JDBC
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+
+logging:
+  level:
+    root: INFO
+    com.relay.orchestrator: DEBUG

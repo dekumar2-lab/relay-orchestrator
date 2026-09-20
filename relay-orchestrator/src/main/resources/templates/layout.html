@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Relay Orchestrator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/sse.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" th:href="@{/css/app.css}" />
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace']
+                    },
+                    colors: {
+                        base: '#0a0e1a',
+                        panel: '#0f1524',
+                        panelAlt: '#131b2e'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="min-h-screen bg-[#0a0e1a] font-sans text-slate-200">
+<div class="flex min-h-screen flex-col">
+    <header class="border-b border-slate-800 bg-[#0f1524]/95 backdrop-blur-sm">
+        <div class="flex items-center justify-between gap-4 px-6 py-4">
+            <div class="flex items-center gap-3">
+                <div class="h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_16px_rgba(52,211,153,0.9)]"></div>
+                <div class="text-lg font-semibold text-white">Relay Orchestrator</div>
+                <span class="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-emerald-300">Status: Healthy</span>
+                <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-slate-300" th:text="${config != null && config.model != null ? config.model : 'claude-sonnet-4.5'}">claude-sonnet-4.5</span>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <div class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-300">
+                    Token Budget: <span class="text-cyan-300" th:text="${config != null && config.requestBudget != null ? config.requestBudget : 1580}">1,580</span>
+                </div>
+                <button type="button" class="rounded-md bg-cyan-500 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-400">
+                    Run Orchestration
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        <aside class="w-64 border-r border-slate-800 bg-[#0d1422]">
+            <div class="p-4">
+                <p class="text-[10px] font-medium uppercase tracking-[0.3em] text-slate-500">Mission Control</p>
+                <nav class="mt-4 space-y-1">
+                    <a th:href="@{/}" th:classappend="${activeTab == 'pipeline'} ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'" class="flex items-center rounded-md px-3 py-2 text-sm font-medium transition">Pipeline Stages</a>
+                    <a th:href="@{/repositories}" th:classappend="${activeTab == 'repositories'} ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'" class="flex items-center rounded-md px-3 py-2 text-sm font-medium transition">Repo Configurations</a>
+                    <a th:href="@{/topology}" th:classappend="${activeTab == 'topology'} ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'" class="flex items-center rounded-md px-3 py-2 text-sm font-medium transition">Workspace Topology</a>
+                    <a th:href="@{/token-tracker}" th:classappend="${activeTab == 'token-tracker'} ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'" class="flex items-center rounded-md px-3 py-2 text-sm font-medium transition">Token Tracker</a>
+                    <a th:href="@{/logs}" th:classappend="${activeTab == 'logs'} ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'" class="flex items-center rounded-md px-3 py-2 text-sm font-medium transition">Terminal Logs</a>
+                </nav>
+                <div class="mt-8 border-t border-slate-800 pt-4">
+                    <nav class="space-y-1">
+                        <a th:href="@{/settings}" th:classappend="${activeTab == 'settings'} ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'" class="flex items-center rounded-md px-3 py-2 text-sm font-medium transition">Settings</a>
+                        <a th:href="@{/support}" th:classappend="${activeTab == 'support'} ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'" class="flex items-center rounded-md px-3 py-2 text-sm font-medium transition">Support</a>
+                    </nav>
+                </div>
+            </div>
+        </aside>
+
+        <main class="flex flex-1 flex-col overflow-hidden bg-[#0a0e1a]">
+            <div class="border-b border-slate-800 bg-[#0f1524]/80">
+                <div class="flex items-center gap-3 overflow-x-auto px-6 py-4 text-xs uppercase tracking-[0.22em] text-slate-400">
+                    <div th:each="stage, iter : ${pipelineStages}" class="flex items-center gap-3">
+                        <span th:classappend="${stage.state == 'done'} ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' : (${stage.state == 'active'} ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-300' : 'border-slate-700 bg-slate-900 text-slate-500')" class="rounded-full border px-2 py-1" th:text="${stage.name + ' (' + stage.state.toUpperCase() + ')'}">Stage</span>
+                        <span th:if="${!iter.last}" class="text-slate-500">→</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex-1 overflow-auto p-6">
+                <div th:replace="~{${viewContent} :: content}"></div>
+            </div>
+
+            <div class="border-t border-slate-800 bg-[#0b1220]">
+                <div class="flex items-center justify-between px-4 py-2 text-[10px] uppercase tracking-[0.2em] text-slate-400">
+                    <span>Live Slicer Stream</span>
+                    <span>Bottom Monitor</span>
+                </div>
+                <div hx-ext="sse" sse-connect="/logs/stream" class="h-44 resize-y overflow-auto bg-[#0a0e1a] px-4 py-3 font-mono text-xs text-slate-300" style="max-height: 20rem; min-height: 8rem;">
+                    <div id="log-content" sse-swap="logline" hx-swap="beforeend scroll:bottom"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('[data-stage-icon]').forEach(node => {
+            const icons = ['◉', '◌', '◎'];
+            let index = 0;
+            if (node.dataset.stageState === 'active') {
+                setInterval(() => {
+                    index = (index + 1) % icons.length;
+                    node.textContent = icons[index];
+                }, 700);
+            }
+        });
+    });
+</script>
+</body>
+</html>

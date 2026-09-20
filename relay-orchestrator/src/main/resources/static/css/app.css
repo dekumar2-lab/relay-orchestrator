@@ -1,0 +1,14 @@
+/* Small custom touches Tailwind's utility classes don't cover directly. */
+
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: #1e293b;
+    border-radius: 9999px;
+}

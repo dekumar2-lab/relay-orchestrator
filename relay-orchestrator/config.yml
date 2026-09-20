@@ -1,0 +1,12 @@
+provider: CLAUDE_API
+githubToken: ''
+anthropicApiKey: REDACTED
+workspaceDir: /tmp/workspace
+model: claude-sonnet-4-5
+requestBudget: 5
+repositories:
+- id: backend
+  path: D:\Deepak\Learning\Agentic AI\Relay\backend
+  sourceType: LOCAL_PATH
+  status: INDEXED
+  lastIndexed: '2026-09-19T23:32:47.1201806'
