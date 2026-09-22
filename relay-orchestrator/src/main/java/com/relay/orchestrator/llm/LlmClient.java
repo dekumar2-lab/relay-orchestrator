@@ -8,74 +8,51 @@ import java.util.Map;
 /**
  * Provider-agnostic LLM client. Every agent in the pipeline calls this,
  * never Anthropic or Copilot SDK directly.
- *
- * Implementations:
- *   - AnthropicLlmClient  (real, wired)
- *   - CopilotLlmClient    (stub until subscription is available)
- *
- * The whole point of this interface is that Phase 2 agents can be written
- * once, and swapping provider is a one-line config change.
  */
 public interface LlmClient {
 
-    /**
-     * Single-shot prompt. Blocks until the model replies or times out.
-     */
     LlmResponse complete(LlmRequest request, ConnectionConfig config);
 
-    /** Which provider this client represents. Used for logging + UI. */
     ProviderId providerId();
 
-    /**
-     * Quick health probe used by the Settings page. Should be lightweight
-     * (small max_tokens) and return a short human-readable detail string.
-     */
     ProbeResult probe(ConnectionConfig config);
 
-    // ----------------------------------------------------------------
-    // Provider identity
-    // ----------------------------------------------------------------
+    default LlmResponse completeStreaming(LlmRequest request, ConnectionConfig config, TokenCallback onToken) {
+        LlmResponse full = complete(request, config);
+        if (full.text() != null && !full.text().isEmpty()) {
+            onToken.onToken(full.text());
+        }
+        return full;
+    }
 
     enum ProviderId {
         ANTHROPIC,
         COPILOT
     }
 
-    // ----------------------------------------------------------------
-    // Request / response records
-    // ----------------------------------------------------------------
-
-    /**
-     * A request to the LLM. Immutable. Use LlmRequest.simple() for the
-     * common "system + one user message" case.
-     */
     record LlmRequest(
             String systemPrompt,
             List<Message> messages,
             String model,
             int maxTokens,
             double temperature,
-            List<ToolDefinition> tools) {
+            List<ToolDefinition> tools,
+            ToolChoice toolChoice) {
 
         public static LlmRequest simple(String system, String user, String model, int maxTokens) {
             return new LlmRequest(
                     system,
                     List.of(new Message("user", user)),
-                    model,
-                    maxTokens,
-                    0.0,
-                    List.of());
+                    model, maxTokens, 0.0,
+                    List.of(), null);
         }
 
-        /** System-only request (e.g. probe). */
         public static LlmRequest probe(String model, int maxTokens) {
             return new LlmRequest(
                     null,
                     List.of(new Message("user", "Reply with the single word OK")),
-                    model,
-                    maxTokens,
-                    0.0,
-                    List.of());
+                    model, maxTokens, 0.0,
+                    List.of(), null);
         }
 
         public boolean hasTools() {
@@ -91,9 +68,6 @@ public interface LlmClient {
         }
     }
 
-    /**
-     * Tool (function) definition for the LLM. Input schema is JSON Schema.
-     */
     record ToolDefinition(
             String name,
             String description,
@@ -101,40 +75,65 @@ public interface LlmClient {
     }
 
     /**
-     * A single tool call requested by the model.
+     * Tells the model how it should (or must) use tools.
+     * null on LlmRequest means "provider default" (usually AUTO).
      */
+    record ToolChoice(Mode mode, String toolName) {
+
+        public enum Mode {
+            AUTO,       // model decides whether to use a tool
+            REQUIRED,   // model must use some tool
+            SPECIFIC    // model must use the named tool
+        }
+
+        public static ToolChoice auto() {
+            return new ToolChoice(Mode.AUTO, null);
+        }
+
+        public static ToolChoice required() {
+            return new ToolChoice(Mode.REQUIRED, null);
+        }
+
+        public static ToolChoice specific(String toolName) {
+            return new ToolChoice(Mode.SPECIFIC, toolName);
+        }
+    }
+
     record ToolCall(
             String id,
             String name,
             Map<String, Object> arguments) {
     }
 
-    /**
-     * The model's reply. toolCalls is empty if the model just produced text.
-     * If toolCalls is non-empty, text may be null or a preamble.
-     */
     record LlmResponse(
             String text,
             int inputTokens,
             int outputTokens,
+            int cacheReadTokens,
+            int cacheWriteTokens,
             String modelUsed,
             List<ToolCall> toolCalls,
             StopReason stopReason) {
 
         public static LlmResponse of(String text, int in, int out, String model) {
-            return new LlmResponse(text, in, out, model, List.of(), StopReason.END_TURN);
+            return new LlmResponse(text, in, out, 0, 0, model, List.of(), StopReason.END_TURN);
         }
 
         public boolean hasToolCalls() {
             return toolCalls != null && !toolCalls.isEmpty();
         }
+
+        /** Total input the API processed = fresh + cache write + cache read. */
+        public int totalInputTokens() {
+            return inputTokens + cacheWriteTokens + cacheReadTokens;
+        }
     }
 
     enum StopReason {
-        END_TURN,       // model finished naturally
-        TOOL_USE,       // model wants to call a tool
-        MAX_TOKENS,     // hit the token cap
-        STOP_SEQUENCE,  // hit a stop sequence
+        END_TURN,
+        TOOL_USE,
+        MAX_TOKENS,
+        STOP_SEQUENCE,
         UNKNOWN
     }
 
@@ -146,14 +145,5 @@ public interface LlmClient {
     @FunctionalInterface
     interface TokenCallback {
         void onToken(String delta);
-    }
-
-     /** Streaming variant. Default buffers then emits one delta. */
-    default LlmResponse completeStreaming(LlmRequest request, ConnectionConfig config, TokenCallback onToken) {
-        LlmResponse full = complete(request, config);
-        if (full.text() != null && !full.text().isEmpty()) {
-            onToken.onToken(full.text());
-        }
-        return full;
     }
 }

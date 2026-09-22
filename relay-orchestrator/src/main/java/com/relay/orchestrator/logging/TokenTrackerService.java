@@ -15,7 +15,7 @@ public class TokenTrackerService {
     private int totalTokens = 0;
     private double totalCost = 0.0;
 
-    public synchronized void logAnthropicUsage(String agentName, String model, int inputTokens, int outputTokens) {
+    public synchronized void logAnthropicUsage (String agentName, String model, int inputTokens, int outputTokens) {
         int totalRunTokens = inputTokens + outputTokens;
 
         // Commercial API Pricing estimation: Claude 3.5 Sonnet / Haiku averages

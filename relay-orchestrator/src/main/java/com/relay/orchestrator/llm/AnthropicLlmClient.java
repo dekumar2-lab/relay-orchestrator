@@ -12,16 +12,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Real Anthropic Messages API client. Handles both plain text and tool-use.
- *
- * Nested types (LlmRequest, LlmResponse, Message, ToolDefinition, ToolCall,
- * StopReason, ProbeResult, ProviderId) are inherited from the LlmClient
- * interface, so they can all be referenced unqualified inside this class.
- *
- * Tool-use wire format reference:
- *   https://docs.anthropic.com/en/docs/build-with-claude/tool-use
- */
 @Service
 public class AnthropicLlmClient implements LlmClient {
 
@@ -37,11 +27,6 @@ public class AnthropicLlmClient implements LlmClient {
         return ProviderId.ANTHROPIC;
     }
 
-    /**
-     * The single entry point every caller uses. The API key is pulled from
-     * the ConnectionConfig here, so the router never has to know which
-     * provider is behind the request.
-     */
     @Override
     public LlmResponse complete(LlmRequest request, ConnectionConfig config) {
         String apiKey = config.getAnthropicApiKey();
@@ -95,7 +80,13 @@ public class AnthropicLlmClient implements LlmClient {
         body.put("max_tokens", request.maxTokens());
 
         if (request.systemPrompt() != null && !request.systemPrompt().isBlank()) {
-            body.put("system", request.systemPrompt());
+            // Mark system prompt as cacheable. Anthropic caches for 5 minutes;
+            // repeat reads bill at ~10% of normal input rate.
+            // Requires >= 1024 tokens to actually cache; below that, no-op.
+            body.put("system", List.of(Map.of(
+                    "type", "text",
+                    "text", request.systemPrompt(),
+                    "cache_control", Map.of("type", "ephemeral"))));
         }
 
         body.put("messages", toAnthropicMessages(request.messages()));
@@ -106,6 +97,9 @@ public class AnthropicLlmClient implements LlmClient {
 
         if (request.hasTools()) {
             body.put("tools", toAnthropicTools(request.tools()));
+            if (request.toolChoice() != null) {
+                body.put("tool_choice", toAnthropicToolChoice(request.toolChoice()));
+            }
         }
 
         return body;
@@ -124,14 +118,28 @@ public class AnthropicLlmClient implements LlmClient {
 
     private List<Map<String, Object>> toAnthropicTools(List<ToolDefinition> tools) {
         List<Map<String, Object>> out = new ArrayList<>();
-        for (ToolDefinition t : tools) {
+        for (int i = 0; i < tools.size(); i++) {
+            ToolDefinition t = tools.get(i);
             Map<String, Object> tool = new LinkedHashMap<>();
             tool.put("name", t.name());
             tool.put("description", t.description());
             tool.put("input_schema", t.inputSchema());
+            // Cache marker on the last tool — Anthropic caches everything
+            // up to and including this block (system + all tools).
+            if (i == tools.size() - 1) {
+                tool.put("cache_control", Map.of("type", "ephemeral"));
+            }
             out.add(tool);
         }
         return out;
+    }
+
+    private Map<String, Object> toAnthropicToolChoice(ToolChoice tc) {
+        return switch (tc.mode()) {
+            case AUTO     -> Map.of("type", "auto");
+            case REQUIRED -> Map.of("type", "any");
+            case SPECIFIC -> Map.of("type", "tool", "name", tc.toolName());
+        };
     }
 
     // ----------------------------------------------------------------
@@ -146,9 +154,13 @@ public class AnthropicLlmClient implements LlmClient {
 
         int inputTokens = 0;
         int outputTokens = 0;
+        int cacheReadTokens = 0;
+        int cacheWriteTokens = 0;
         if (raw.get("usage") instanceof Map<?, ?> usage) {
             inputTokens = intOrZero(usage.get("input_tokens"));
             outputTokens = intOrZero(usage.get("output_tokens"));
+            cacheReadTokens = intOrZero(usage.get("cache_read_input_tokens"));
+            cacheWriteTokens = intOrZero(usage.get("cache_creation_input_tokens"));
         }
 
         String modelUsed = raw.get("model") != null
@@ -165,16 +177,12 @@ public class AnthropicLlmClient implements LlmClient {
 
         if (raw.get("content") instanceof List<?> contentList) {
             for (Object item : contentList) {
-                if (!(item instanceof Map<?, ?> block)) {
-                    continue;
-                }
+                if (!(item instanceof Map<?, ?> block)) continue;
                 String type = block.get("type") != null ? String.valueOf(block.get("type")) : "";
                 switch (type) {
                     case "text" -> {
                         Object t = block.get("text");
-                        if (t != null) {
-                            text.append(t);
-                        }
+                        if (t != null) text.append(t);
                     }
                     case "tool_use" -> {
                         String id = block.get("id") != null ? String.valueOf(block.get("id")) : "";
@@ -193,6 +201,8 @@ public class AnthropicLlmClient implements LlmClient {
                 text.length() == 0 ? null : text.toString(),
                 inputTokens,
                 outputTokens,
+                cacheReadTokens,
+                cacheWriteTokens,
                 modelUsed,
                 toolCalls,
                 stopReason);
@@ -222,17 +232,8 @@ public class AnthropicLlmClient implements LlmClient {
         return "";
     }
 
-    // ----------------------------------------------------------------
-    // Typed exception so callers can distinguish LLM failure from bug
-    // ----------------------------------------------------------------
-
     public static class LlmException extends RuntimeException {
-        public LlmException(String message) {
-            super(message);
-        }
-
-        public LlmException(String message, Throwable cause) {
-            super(message, cause);
-        }
+        public LlmException(String message) { super(message); }
+        public LlmException(String message, Throwable cause) { super(message, cause); }
     }
 }

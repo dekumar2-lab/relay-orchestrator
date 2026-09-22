@@ -1,0 +1,38 @@
+package com.relay.orchestrator.tokens;
+
+import com.relay.orchestrator.config.AppConfigManager;
+import org.springframework.stereotype.Service;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@Service
+public class ModelPricingService {
+
+    // Fallback pricing if config is silent — Anthropic Sonnet rates.
+    private static final ModelPricing FALLBACK =
+            ModelPricing.perToken(3.0, 15.0, 1.25, 0.10);
+
+    private final AppConfigManager config;
+
+    public ModelPricingService(AppConfigManager config) {
+        this.config = config;
+    }
+
+    public ModelPricing forModel(String model) {
+        if (model == null || model.isBlank()) return ModelPricing.unknown();
+
+        // Match exact first, then by prefix (e.g. "claude-sonnet-4-5-20250929" → "claude-sonnet-4-5")
+        Map<String, ModelPricing> table = config.getModelPricing();
+        ModelPricing exact = table.get(model);
+        if (exact != null) return exact;
+
+        for (Map.Entry<String, ModelPricing> e : table.entrySet()) {
+            if (model.startsWith(e.getKey())) return e.getValue();
+        }
+
+        // Unknown model — let config say "unknown", else use fallback
+        ModelPricing unknown = table.get("__unknown__");
+        return unknown != null ? unknown : FALLBACK;
+    }
+}

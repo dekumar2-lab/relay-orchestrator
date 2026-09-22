@@ -3,6 +3,8 @@ package com.relay.orchestrator.config;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 
+import com.relay.orchestrator.agent.AgentConfig;
+import com.relay.orchestrator.agent.AgentRole;
 import com.relay.orchestrator.connection.ConnectionConfig;
 
 import org.slf4j.Logger;
@@ -27,13 +29,22 @@ public class AppConfigManager {
     // ~/.relay-orchestrator/config.yml
     private final Path configPath = resolveConfigPath();
 
+    private AgentConfig agentConfig = AgentConfig.defaults();
+
+    public AgentConfig getAgentConfig() {
+        return agentConfig;
+    }
+
     private static Path resolveConfigPath() {
+        String envDataDir = System.getenv("RELAY_DATA_DIR");
+        if (envDataDir != null && !envDataDir.isBlank()) {
+            return Path.of(envDataDir, "config.yml");
+        }
         Path projectConfig = Paths.get("config.yml").toAbsolutePath().normalize();
         if (Files.exists(projectConfig)) {
             return projectConfig;
         }
-        Path homeConfig = Paths.get(System.getProperty("user.home"), ".relay-orchestrator", "config.yml");
-        return homeConfig;
+        return Paths.get(System.getProperty("user.home"), ".relay-orchestrator", "config.yml");
     }
 
     // Loaded operational values stored in-memory
@@ -105,10 +116,66 @@ public class AppConfigManager {
             if (this.repositories.isEmpty()) {
                 addDefaultBackendRepositoryIfPresent();
             }
+
+            // Parse agents block if present
+            this.agentConfig = parseAgentConfig(data.get("agents"));
+            
+            log.info("Agent config: enabled={} roles={} searchPaths={}",
+                    agentConfig.enabled(),
+                    agentConfig.roleToPersona(),
+                    agentConfig.searchPaths());
+
             log.info("Successfully loaded {} repositories from settings config.", repositories.size());
         } catch (Exception e) {
             log.error("Failed to safely read config.yml file from folder context structure", e);
         }
+    }
+
+           @SuppressWarnings("unchecked")
+    private AgentConfig parseAgentConfig(Object raw) {
+        if (!(raw instanceof Map<?, ?> rawMap)) {
+            return AgentConfig.defaults();
+        }
+        Map<String, Object> block = (Map<String, Object>) rawMap;
+
+        boolean enabled = Boolean.TRUE.equals(block.get("enabled"));
+
+        List<String> searchPaths = AgentConfig.defaults().searchPaths();
+        if (block.get("searchPaths") instanceof List<?> list) {
+            searchPaths = list.stream().map(String::valueOf).toList();
+        }
+
+        Map<AgentRole, String> roleToPersona = new java.util.EnumMap<>(AgentRole.class);
+        if (block.get("roles") instanceof Map<?, ?> roles) {
+            for (Map.Entry<?, ?> e : roles.entrySet()) {
+                try {
+                    AgentRole role = AgentRole.valueOf(String.valueOf(e.getKey()).toUpperCase());
+                    roleToPersona.put(role, String.valueOf(e.getValue()));
+                } catch (IllegalArgumentException ex) {
+                    log.warn("Unknown agent role in config: {}", e.getKey());
+                }
+            }
+        }
+
+        Map<String, AgentConfig.PersonaOverride> overrides = new java.util.HashMap<>();
+        if (block.get("overrides") instanceof Map<?, ?> ovr) {
+            for (Map.Entry<?, ?> e : ovr.entrySet()) {
+                String name = String.valueOf(e.getKey());
+                if (e.getValue() instanceof Map<?, ?> m) {
+                    overrides.put(name, new AgentConfig.PersonaOverride(
+                            Optional.ofNullable(m.get("model")).map(String::valueOf),
+                            Optional.ofNullable(m.get("temperature"))
+                                    .map(v -> ((Number) v).doubleValue()),
+                            Optional.ofNullable(m.get("maxTokens"))
+                                    .map(v -> ((Number) v).intValue())));
+                }
+            }
+        }
+
+        Object fallbackRaw = block.get("fallbackPersona");
+        String fallback = fallbackRaw != null ? String.valueOf(fallbackRaw) : "generic";
+
+        return new AgentConfig(enabled, searchPaths, roleToPersona, overrides, fallback);
     }
 
     private void addDefaultBackendRepositoryIfPresent() {
@@ -164,6 +231,29 @@ public class AppConfigManager {
             }
             rawData.put("repositories", repoListMaps);
 
+                        // Persist agents block
+            Map<String, Object> agentsBlock = new LinkedHashMap<>();
+            agentsBlock.put("enabled", this.agentConfig.enabled());
+            agentsBlock.put("searchPaths", this.agentConfig.searchPaths());
+
+            Map<String, String> rolesOut = new LinkedHashMap<>();
+            this.agentConfig.roleToPersona()
+                    .forEach((k, v) -> rolesOut.put(k.name().toLowerCase(), v));
+            agentsBlock.put("roles", rolesOut);
+
+            Map<String, Object> overridesOut = new LinkedHashMap<>();
+            this.agentConfig.overrides().forEach((name, ovr) -> {
+                Map<String, Object> o = new LinkedHashMap<>();
+                ovr.model().ifPresent(m -> o.put("model", m));
+                ovr.temperature().ifPresent(t -> o.put("temperature", t));
+                ovr.maxTokens().ifPresent(t -> o.put("maxTokens", t));
+                overridesOut.put(name, o);
+            });
+            agentsBlock.put("overrides", overridesOut);
+            agentsBlock.put("fallbackPersona", this.agentConfig.fallbackPersona());
+
+            rawData.put("agents", agentsBlock);
+            
             // Configure pretty printing styling formatting output constraints
             DumperOptions options = new DumperOptions();
             options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
@@ -216,6 +306,7 @@ public class AppConfigManager {
         }
     }
 
+    
     // --- Accessor Getter and Setter Methods ---
     public String getGithubToken() {
         return githubToken;

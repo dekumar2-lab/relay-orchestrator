@@ -9,4 +9,24 @@ repositories:
   path: D:\Deepak\Learning\Agentic AI\Relay\backend
   sourceType: LOCAL_PATH
   status: INDEXED
-  lastIndexed: '2026-09-20T01:22:21.0566445'
+  lastIndexed: '2026-09-20T22:52:25.9133169'
+- id: backend1
+  path: D:\Deepak\Learning\Agentic AI\Relay\backend
+  sourceType: LOCAL_PATH
+  status: INDEXED
+  lastIndexed: '2026-09-20T22:55:51.8854218'
+agents:
+  enabled: true
+  searchPaths:
+  - ~/.relay-orchestrator/agents
+  - classpath:agents
+  roles:
+    orchestrator: michael
+    analyst: oscar
+    implementer: dwight
+    tester: jim
+    documenter: pam
+  overrides:
+    michael:
+      temperature: 0.3
+  fallbackPersona: generic
