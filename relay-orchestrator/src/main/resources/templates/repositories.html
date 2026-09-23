@@ -59,6 +59,10 @@
                             <span th:if="${repo.status.name() == 'NOT_INDEXED'}" class="px-2 py-0.5 text-[9px] rounded-full bg-slate-900 text-slate-400 font-bold border border-slate-700 font-sans">NOT INDEXED</span>
                             <span th:if="${repo.status.name() == 'INDEXED'}" class="px-2 py-0.5 text-[9px] rounded-full bg-emerald-950/60 text-emerald-400 font-bold border border-emerald-900/60 font-sans">INDEXED</span>
                             <span th:if="${repo.status.name() == 'STALE'}" class="px-2 py-0.5 text-[9px] rounded-full bg-amber-950/60 text-amber-400 font-bold border border-amber-800/60 font-sans">STALE</span>
+                            <span th:if="${repo.status.name() == 'NEEDS_REINDEX'}"
+                                class="px-2 py-0.5 text-[9px] rounded-full bg-purple-950/60 text-purple-400 font-bold border border-purple-900/60 font-sans">
+                                NEEDS REINDEX
+                            </span>
                             <span th:if="${repo.status.name() == 'FAILED'}" class="px-2 py-0.5 text-[9px] rounded-full bg-red-950/60 text-red-400 font-bold border border-red-900/60 font-sans">FAILED</span>
                         </div>
                         <p class="text-xs text-slate-400 font-mono" th:text="${repo.path}">/Users/you/dev/payment-service</p>

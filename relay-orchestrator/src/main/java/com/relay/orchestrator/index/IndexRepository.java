@@ -20,10 +20,11 @@ public class IndexRepository {
 
     @Transactional
     public void clearRepoIndex(String repoId) {
-        // SQLite cascade cleanup manually managed to prevent row locks
         jdbc.update("DELETE FROM dependencies WHERE repo_id = ?", repoId);
         jdbc.update("DELETE FROM methods WHERE class_id IN (SELECT id FROM classes WHERE repo_id = ?)", repoId);
         jdbc.update("DELETE FROM classes WHERE repo_id = ?", repoId);
+        // NEW: also clear chunks for this repo
+        jdbc.update("DELETE FROM code_chunks WHERE repo_id = ?", repoId);
     }
 
     public long insertClass(String repoId, String packageName, String className, String filePath,

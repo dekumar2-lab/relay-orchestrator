@@ -9,6 +9,10 @@ import com.relay.orchestrator.tokens.TokenMetricsService;
 import com.relay.orchestrator.pipeline.AnsweredQuestion;
 import com.relay.orchestrator.pipeline.ClarificationLoopService;
 import com.relay.orchestrator.pipeline.PipelineSession;
+import com.relay.orchestrator.retrieval.ChunkRepository;
+import com.relay.orchestrator.retrieval.EmbeddingService;
+import com.relay.orchestrator.retrieval.RetrievalService;
+import com.relay.orchestrator.retrieval.RetrievedChunk;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import java.util.stream.Collectors;
@@ -31,6 +35,8 @@ import java.util.concurrent.Executors;
 @Controller
 public class ConnectionController {
 
+    private final EmbeddingService embeddingService;
+
     private final ConnectionConfigService configService;
     private final ConnectionStatusService connectionStatusService;
     private final CopilotConnectionChecker copilotConnectionChecker;
@@ -39,7 +45,9 @@ public class ConnectionController {
     private final IntentClarifierService intentClarifierService;
     private final LogBroadcaster logBroadcaster;
     private final TokenMetricsService tokenMetrics;
-      private final ClarificationLoopService loopService;
+    private final ClarificationLoopService loopService;
+    private final RetrievalService retrievalService;
+    private final ChunkRepository chunkRepository;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "connection-test");
@@ -53,7 +61,13 @@ public class ConnectionController {
             ClaudeApiConnectionChecker claudeApiConnectionChecker,
             TokenTrackerService tokenTrackerService,
             IntentClarifierService intentClarifierService,
-            LogBroadcaster logBroadcaster, TokenMetricsService tokenMetrics, ClarificationLoopService loopService) {
+            EmbeddingService embeddingService,
+            LogBroadcaster logBroadcaster,
+            TokenMetricsService tokenMetrics,
+            ClarificationLoopService loopService,
+            RetrievalService retrievalService,
+            ChunkRepository chunkRepository) {
+        this.embeddingService = embeddingService;
         this.configService = configService;
         this.connectionStatusService = connectionStatusService;
         this.copilotConnectionChecker = copilotConnectionChecker;
@@ -61,8 +75,10 @@ public class ConnectionController {
         this.tokenTrackerService = tokenTrackerService;
         this.intentClarifierService = intentClarifierService;
         this.logBroadcaster = logBroadcaster;
-		this.tokenMetrics = tokenMetrics;
+        this.tokenMetrics = tokenMetrics;
         this.loopService = loopService;
+        this.retrievalService = retrievalService;
+        this.chunkRepository = chunkRepository;
     }
 
     @ModelAttribute("config")
@@ -95,7 +111,7 @@ public class ConnectionController {
         return pipelineStages(model);
     }
 
-       @PostMapping("/orchestrate/run")
+    @PostMapping("/orchestrate/run")
     @ResponseBody
     public ResponseEntity<?> handlePipelineExecutionRun(@RequestParam String storyInput) {
         if (storyInput == null || storyInput.isBlank()) {
@@ -134,7 +150,7 @@ public class ConnectionController {
         }
     }
 
-        /**
+    /**
      * Start a new clarification session.
      * Body: { "story": "..." }
      */
@@ -157,7 +173,8 @@ public class ConnectionController {
 
     /**
      * Resume a paused session with user answers.
-     * Body: { "sessionId": "...", "answers": [{"questionId": "q1", "answer": "..."}], "additionalContext": "..." }
+     * Body: { "sessionId": "...", "answers": [{"questionId": "q1", "answer":
+     * "..."}], "additionalContext": "..." }
      */
     @PostMapping("/pipeline/clarify/resume")
     @ResponseBody
@@ -318,6 +335,114 @@ public class ConnectionController {
         model.addAttribute("viewContent", "support");
         model.addAttribute("config", config);
         return "layout";
+    }
+
+    /**
+     * TEMPORARY debug endpoint — verifies ONNX embedding service works.
+     * Remove after Phase 1.3a verification.
+     */
+    @GetMapping("/debug/embed")
+    @ResponseBody
+    public ResponseEntity<?> debugEmbed(@RequestParam String text) {
+        try {
+            if (!embeddingService.isAvailable()) {
+                return ResponseEntity.status(503).body(Map.of(
+                        "available", false,
+                        "reason", embeddingService.unavailableReason()));
+            }
+
+            long start = System.currentTimeMillis();
+            float[] vec = embeddingService.embed(text);
+            long elapsed = System.currentTimeMillis() - start;
+
+            return ResponseEntity.ok(Map.of(
+                    "available", true,
+                    "dimension", vec.length,
+                    "elapsedMs", elapsed,
+                    "first8", java.util.Arrays.copyOf(vec, Math.min(8, vec.length)),
+                    "norm", computeNorm(vec)));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "available", false,
+                    "error", e.getClass().getSimpleName() + ": " + e.getMessage()));
+        }
+    }
+
+    private double computeNorm(float[] v) {
+        double s = 0;
+        for (float x : v)
+            s += x * x;
+        return Math.sqrt(s);
+    }
+
+    @GetMapping("/debug/similarity")
+    @ResponseBody
+    public ResponseEntity<?> debugSimilarity(@RequestParam String a, @RequestParam String b) {
+        try {
+            float[] va = embeddingService.embed(a);
+            float[] vb = embeddingService.embed(b);
+            float dot = 0;
+            for (int i = 0; i < va.length; i++)
+                dot += va[i] * vb[i];
+            return ResponseEntity.ok(Map.of(
+                    "a", a,
+                    "b", b,
+                    "cosine", dot));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
+     * TEMPORARY debug endpoint — inspect retrieval without running the
+     * full clarifier. Remove after Phase 1.3 verification.
+     */
+    /**
+     * TEMPORARY debug endpoint — inspects retrieval without the full clarifier.
+     * Shows total candidates, count above floor, and top-5 by score regardless
+     * of floor so tuning is possible.
+     */
+    @GetMapping("/debug/retrieve")
+    @ResponseBody
+    public ResponseEntity<?> debugRetrieve(@RequestParam String story) {
+        try {
+            long start = System.currentTimeMillis();
+
+            // Step 1: report how many chunks exist at all
+            int totalInDb = chunkRepository.countAll();
+
+            // Step 2: run the normal retrieval (with floor)
+            List<RetrievedChunk> floored = retrievalService.retrieveForStory(story);
+
+            // Step 3: run an unfloored top-10 for tuning
+            List<RetrievedChunk> top10 = retrievalService.retrieveForStory(
+                    story, 10, 0.0f, 100_000);
+
+            long elapsed = System.currentTimeMillis() - start;
+
+            List<Map<String, Object>> results = new java.util.ArrayList<>();
+            for (RetrievedChunk rc : top10) {
+                Map<String, Object> m = new java.util.LinkedHashMap<>();
+                m.put("similarity", (double) rc.similarity());
+                m.put("type", rc.chunk().chunkType());
+                m.put("qualifiedName", rc.chunk().qualifiedName());
+                m.put("filePath", rc.chunk().filePath());
+                results.add(m);
+            }
+
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("story", story);
+            body.put("totalChunksInDb", totalInDb);
+            body.put("flooredCount", floored.size());
+            body.put("elapsedMs", elapsed);
+            body.put("top10NoFloor", results);
+            return ResponseEntity.ok(body);
+
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", e.getClass().getSimpleName() + ": " + e.getMessage()));
+        }
     }
 
     @PostMapping("/connection/test")

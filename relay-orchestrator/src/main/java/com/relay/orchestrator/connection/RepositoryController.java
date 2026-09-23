@@ -4,6 +4,8 @@ import com.relay.orchestrator.config.AppConfigManager; // Presumed existing mana
 import com.relay.orchestrator.config.RepositoryConfig;
 import com.relay.orchestrator.config.RepoStatus;
 import com.relay.orchestrator.index.RepoIndexerService;
+import com.relay.orchestrator.retrieval.ChunkRepository;
+
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -22,17 +24,25 @@ public class RepositoryController {
 
     private final AppConfigManager configManager;
     private final RepoIndexerService indexerService;
+    private final ChunkRepository chunkRepository;
 
-    public RepositoryController(AppConfigManager configManager, RepoIndexerService indexerService) {
+    public RepositoryController(AppConfigManager configManager, RepoIndexerService indexerService,
+            ChunkRepository chunkRepository) {
         this.configManager = configManager;
         this.indexerService = indexerService;
+        this.chunkRepository = chunkRepository;
     }
 
     @GetMapping
     public String viewRepositoriesScreen(Model model) {
         for (RepositoryConfig repo : configManager.getRepositories()) {
-            if (repo.getStatus() == RepoStatus.INDEXED && repo.getLastIndexed() != null) {
-                if (isRepositoryDirectoryStale(repo)) {
+            if (repo.getStatus() == RepoStatus.INDEXED) {
+                // Chunks missing entirely → NEEDS_REINDEX (retrieval will be empty)
+                if (!chunkRepository.hasChunks(repo.getId())) {
+                    repo.setStatus(RepoStatus.NEEDS_REINDEX);
+                }
+                // Files newer than lastIndexed → STALE
+                else if (repo.getLastIndexed() != null && isRepositoryDirectoryStale(repo)) {
                     repo.setStatus(RepoStatus.STALE);
                 }
             }

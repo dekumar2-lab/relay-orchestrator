@@ -9,12 +9,7 @@ repositories:
   path: D:\Deepak\Learning\Agentic AI\Relay\backend
   sourceType: LOCAL_PATH
   status: INDEXED
-  lastIndexed: '2026-09-20T22:52:25.9133169'
-- id: backend1
-  path: D:\Deepak\Learning\Agentic AI\Relay\backend
-  sourceType: LOCAL_PATH
-  status: INDEXED
-  lastIndexed: '2026-09-20T22:55:51.8854218'
+  lastIndexed: '2026-09-22T23:18:09.929627'
 agents:
   enabled: true
   searchPaths:

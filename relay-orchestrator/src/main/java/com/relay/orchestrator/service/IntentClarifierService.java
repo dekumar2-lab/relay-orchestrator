@@ -11,6 +11,8 @@ import com.relay.orchestrator.logging.LogBroadcaster;
 import com.relay.orchestrator.logging.LogEvent;
 import com.relay.orchestrator.logging.TokenTrackerService;
 import com.relay.orchestrator.pipeline.AnsweredQuestion;
+import com.relay.orchestrator.retrieval.RetrievalService;
+import com.relay.orchestrator.retrieval.RetrievedChunk;
 import com.relay.orchestrator.tokens.TokenMetricsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,29 +37,52 @@ public class IntentClarifierService {
     private final LogBroadcaster logBroadcaster;
     private final TokenTrackerService tokenTracker;
     private final TokenMetricsService tokenMetrics;
+    private final RetrievalService retrievalService;
+
+    /**
+     * Appended to the system prompt when retrieved code context is available.
+     * Kept separate from the persona so it can be toggled on/off without
+     * editing markdown files.
+     */
+    private static final String RETRIEVAL_GUIDANCE = """
+
+            RETRIEVED CODE CONTEXT:
+            You will be given excerpts of the user's own codebase, retrieved by
+            semantic similarity to the story. Use them to ground your analysis.
+
+            - Reference concrete class and method names from the excerpts when
+              they are relevant.
+            - Prefer specific questions like "Should this apply to
+              AuthController.login only, or all methods on AuthController?"
+              over generic ones like "which endpoint should be rate limited?"
+            - Do NOT invent classes or methods that are not visible in the
+              excerpts or the story. If the excerpts do not cover the topic,
+              fall back to generic analysis and say so in ASSUMPTIONS.
+            """;
 
     public IntentClarifierService(LlmClientRouter llmRouter,
             ConnectionConfigService configService,
             AgentRegistry agentRegistry,
             LogBroadcaster logBroadcaster,
             TokenTrackerService tokenTracker,
-            TokenMetricsService tokenMetrics) {
+            TokenMetricsService tokenMetrics, RetrievalService retrievalService) {
         this.llmRouter = llmRouter;
         this.configService = configService;
         this.agentRegistry = agentRegistry;
         this.logBroadcaster = logBroadcaster;
         this.tokenTracker = tokenTracker;
         this.tokenMetrics = tokenMetrics;
+        this.retrievalService = retrievalService;
     }
 
-        public ClarificationResult clarify(String story) {
+    public ClarificationResult clarify(String story) {
         return clarifyWithHistory(story, UUID.randomUUID().toString(), List.of(), false);
     }
 
     public ClarificationResult clarifyWithHistory(String story,
-                                                   String sessionId,
-                                                   List<AnsweredQuestion> history,
-                                                   boolean lastChance) {
+            String sessionId,
+            List<AnsweredQuestion> history,
+            boolean lastChance) {
         if (story == null || story.isBlank()) {
             return ClarificationResult.error("Story input is empty");
         }
@@ -68,11 +93,37 @@ public class IntentClarifierService {
         AgentPersona persona = agentRegistry.getForRole(AgentRole.ORCHESTRATOR);
 
         String systemPrompt = persona.toSystemPrompt();
+
+        // If we have retrieval context, add guidance on how to use it.
+        // The system prompt is the stable cached prefix, so this change also
+        // helps prompt caching (bigger cached prefix, larger savings).
+        boolean willRetrieve = retrievalService != null;
+        if (willRetrieve) {
+            systemPrompt = systemPrompt + RETRIEVAL_GUIDANCE;
+        }
         String model = persona.modelOverride().orElse(config.getModel());
         int maxTokens = persona.maxTokensOverride().orElse(1200);
         double temperature = persona.temperatureOverride().orElse(0.0);
 
-        String userMessage = composeUserMessage(story, history, lastChance);
+        // Retrieve relevant code chunks from the indexed repos
+        List<RetrievedChunk> retrieved;
+        try {
+            retrieved = retrievalService.retrieveForStory(story);
+        } catch (Exception e) {
+            log.warn("Retrieval failed, proceeding without context: {}", e.getMessage());
+            retrieved = List.of();
+        }
+
+        if (!retrieved.isEmpty()) {
+            logBroadcaster.publish(LogEvent.info(
+                    "[RETRIEVAL] Retrieved " + retrieved.size() + " chunks: "
+                            + retrieved.stream()
+                                    .map(r -> r.chunk().qualifiedName())
+                                    .reduce((a, b) -> a + ", " + b)
+                                    .orElse("")));
+        }
+
+        String userMessage = composeUserMessage(story, history, lastChance, retrieved);
 
         logBroadcaster.publish(LogEvent.info(
                 "[" + persona.displayName() + "] Analyzing story: \"" + abbreviate(story, 120) + "\""
@@ -145,12 +196,77 @@ public class IntentClarifierService {
     }
 
     /**
+     * Compose the single user message including accumulated Q&A context
+     * and (optionally) retrieved code chunks from the indexed repo.
+     *
+     * Uses one message rather than multi-turn history because the clarifier
+     * runs one-shot per turn — Anthropic holds no session state.
+     */
+    /**
+     * Compose the single user message including accumulated Q&A context
+     * and (optionally) retrieved code chunks from the indexed repo.
+     *
+     * Uses one message rather than multi-turn history because the clarifier
+     * runs one-shot per turn — Anthropic holds no session state.
+     */
+    private String composeUserMessage(String story,
+            List<AnsweredQuestion> history,
+            boolean lastChance,
+            List<RetrievedChunk> retrieved) {
+
+        StringBuilder sb = new StringBuilder();
+
+        // 1. Retrieved code context (if any)
+        if (retrieved != null && !retrieved.isEmpty()) {
+            sb.append("RETRIEVED CODE FROM THE USER'S INDEXED REPOSITORY:\n\n");
+            for (int i = 0; i < retrieved.size(); i++) {
+                RetrievedChunk rc = retrieved.get(i);
+                sb.append("--- [").append(i + 1).append("] ")
+                        .append(rc.chunk().qualifiedName())
+                        .append(" (").append(rc.chunk().chunkType())
+                        .append(", similarity ").append(String.format("%.3f", rc.similarity()))
+                        .append(") ---\n");
+                sb.append(rc.chunk().content()).append("\n\n");
+            }
+            sb.append("---\n\n");
+        }
+
+        // 2. Original story
+        sb.append("Original story:\n").append(story).append("\n\n");
+
+        // 3. Previous Q&A
+        if (history != null && !history.isEmpty()) {
+            sb.append("Previous clarifying questions and answers:\n");
+            int qNum = 1;
+            for (AnsweredQuestion a : history) {
+                sb.append("Q").append(qNum).append(": ").append(a.question()).append("\n");
+                if (a.why() != null && !a.why().isBlank()) {
+                    sb.append("   (why: ").append(a.why()).append(")\n");
+                }
+                sb.append("A").append(qNum).append(": ").append(a.answer()).append("\n\n");
+                qNum++;
+            }
+        }
+
+        // 4. Last-chance instruction
+        if (lastChance) {
+            sb.append("IMPORTANT: This is the final turn. You must NOT ask any more questions. ")
+                    .append("Produce a READY state with the best assumptions you can make, ")
+                    .append("or BLOCKED if the story cannot be implemented. ")
+                    .append("Set confidence to LOW if you are forced to proceed without complete info.\n\n");
+        }
+
+        sb.append("Now provide an updated clarification report for the original story.");
+        return sb.toString();
+    }
+
+    /**
      * Compose the single user message including accumulated Q&A context.
      * We use one message rather than a multi-turn history because the
      * clarifier runs one-shot per turn — Anthropic holds no session state.
      */
     private String composeUserMessage(String story, List<AnsweredQuestion> history,
-                                       boolean lastChance) {
+            boolean lastChance) {
         if (history == null || history.isEmpty()) {
             return story;
         }
@@ -171,9 +287,9 @@ public class IntentClarifierService {
 
         if (lastChance) {
             sb.append("IMPORTANT: This is the final turn. You must NOT ask any more questions. ")
-              .append("Produce a READY state with the best assumptions you can make, ")
-              .append("or BLOCKED if the story cannot be implemented. ")
-              .append("Set confidence to LOW if you are forced to proceed without complete info.\n\n");
+                    .append("Produce a READY state with the best assumptions you can make, ")
+                    .append("or BLOCKED if the story cannot be implemented. ")
+                    .append("Set confidence to LOW if you are forced to proceed without complete info.\n\n");
         }
 
         sb.append("Now provide an updated clarification report for the original story.");
@@ -277,8 +393,7 @@ public class IntentClarifierService {
 
     private ClarificationResult fromToolArguments(Map<String, Object> args) {
         ClarificationResult.State state = parseState(stringOr(args, "state", "BLOCKED"));
-        ClarificationResult.Confidence confidence =
-                parseConfidence(stringOr(args, "confidence", "LOW"));
+        ClarificationResult.Confidence confidence = parseConfidence(stringOr(args, "confidence", "LOW"));
         String summary = stringOr(args, "summary", "");
         String complexity = stringOr(args, "estimatedComplexity", "unknown");
 
@@ -311,20 +426,24 @@ public class IntentClarifierService {
     }
 
     private List<String> toStringList(Object raw) {
-        if (!(raw instanceof List<?> list)) return List.of();
+        if (!(raw instanceof List<?> list))
+            return List.of();
         List<String> out = new ArrayList<>(list.size());
         for (Object item : list) {
-            if (item != null) out.add(String.valueOf(item));
+            if (item != null)
+                out.add(String.valueOf(item));
         }
         return out;
     }
 
     private List<ClarifyingQuestion> toQuestions(Object raw) {
-        if (!(raw instanceof List<?> list)) return List.of();
+        if (!(raw instanceof List<?> list))
+            return List.of();
         List<ClarifyingQuestion> out = new ArrayList<>();
         int idx = 1;
         for (Object item : list) {
-            if (!(item instanceof Map<?, ?> m)) continue;
+            if (!(item instanceof Map<?, ?> m))
+                continue;
             String id = m.get("id") != null ? String.valueOf(m.get("id")) : "q" + idx;
             String question = m.get("question") != null ? String.valueOf(m.get("question")) : "";
             String why = m.get("why") != null ? String.valueOf(m.get("why")) : "";
@@ -354,12 +473,14 @@ public class IntentClarifierService {
     }
 
     private int estimateTokens(String text) {
-        if (text == null) return 0;
+        if (text == null)
+            return 0;
         return Math.max(1, (int) (text.length() / 3.5));
     }
 
     private String abbreviate(String s, int max) {
-        if (s == null) return "";
+        if (s == null)
+            return "";
         return s.length() <= max ? s : s.substring(0, max - 1) + "…";
     }
 }
