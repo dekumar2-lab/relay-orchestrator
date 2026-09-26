@@ -198,6 +198,15 @@ public class ConnectionController {
         }
     }
 
+    @GetMapping("/pipeline/sessions")
+    @ResponseBody
+    public ResponseEntity<?> listSessions(@RequestParam(defaultValue = "20") int limit) {
+        return ResponseEntity.ok(
+                loopService.recent(limit).stream()
+                        .map(this::toSessionView)
+                        .toList());
+    }
+
     @PostMapping("/pipeline/clarify")
     @ResponseBody
     public ResponseEntity<?> startClarification(@RequestBody Map<String, String> body) {

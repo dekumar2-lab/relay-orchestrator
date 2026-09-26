@@ -2,32 +2,23 @@ package com.relay.orchestrator.config;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.turbo.TurboFilter;
 import ch.qos.logback.core.spi.FilterReply;
+import jakarta.annotation.PostConstruct;
+import org.slf4j.ILoggerFactory;
+import org.slf4j.LoggerFactory;
 import org.slf4j.Marker;
 import org.springframework.stereotype.Component;
 
 import java.util.Locale;
 
-/**
- * Logback TurboFilter that swallows the "Servlet.service() for servlet
- * dispatcherServlet threw exception" ERROR entries when the underlying cause
- * is a client disconnect on an SSE stream.
- *
- * Runs BEFORE the log event is formatted, so there is zero console noise
- * and zero async-dispatch reentrancy. The counterpart to the Tomcat
- * ErrorReportValve, which does not always fire on Spring Boot 3.4's async
- * dispatch path.
- *
- * Scope: only the 'dispatcherServlet' logger at ERROR level is filtered, and
- * only when the throwable is a recognised client-disconnect IOException.
- * Everything else passes through untouched.
- */
 @Component
 public class SseDisconnectLogFilter extends TurboFilter {
 
-    private static final String DISPATCHER_SERVLET_LOGGER =
-            "o.a.c.c.C.[.[.[/].[dispatcherServlet]";
+    private static final org.slf4j.Logger log = LoggerFactory.getLogger(SseDisconnectLogFilter.class);
+
+    private static final String DISPATCHER_SUFFIX = ".[dispatcherServlet]";
 
     private static final String[] DISCONNECT_MARKERS = {
             "aborted by the software in your host machine",
@@ -36,8 +27,20 @@ public class SseDisconnectLogFilter extends TurboFilter {
             "connection aborted",
             "socket closed",
             "software caused connection abort",
-            "an existing connection was forcibly closed"
+            "an existing connection was forcibly closed",
+            "connection has been closed"
     };
+
+    @PostConstruct
+    public void registerWithLogback() {
+        ILoggerFactory factory = LoggerFactory.getILoggerFactory();
+        if (factory instanceof LoggerContext ctx) {
+            ctx.addTurboFilter(this);
+            log.info("SseDisconnectLogFilter registered with Logback");
+        } else {
+            log.warn("LoggerFactory is not Logback; SSE disconnect noise will not be filtered");
+        }
+    }
 
     @Override
     public FilterReply decide(Marker marker, Logger logger, Level level,
@@ -47,7 +50,8 @@ public class SseDisconnectLogFilter extends TurboFilter {
             return FilterReply.NEUTRAL;
         }
 
-        if (!DISPATCHER_SERVLET_LOGGER.equals(logger.getName())) {
+        if (logger == null || logger.getName() == null
+                || !logger.getName().endsWith(DISPATCHER_SUFFIX)) {
             return FilterReply.NEUTRAL;
         }
 
@@ -69,6 +73,11 @@ public class SseDisconnectLogFilter extends TurboFilter {
                         return true;
                     }
                 }
+            }
+            // Also match by class name — ClientAbortException has no message
+            String cn = cur.getClass().getName();
+            if (cn != null && cn.toLowerCase(Locale.ROOT).contains("clientabortexception")) {
+                return true;
             }
             cur = cur.getCause();
         }

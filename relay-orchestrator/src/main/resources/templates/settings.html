@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Relay Orchestrator - Connection</title>
+    <title>Relay Orchestrator - Settings</title>
 
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -19,58 +19,86 @@
                 extend: {
                     fontFamily: {
                         sans: ['Inter', 'sans-serif'],
-                        mono: ['JetBrains Mono', 'monospace'],
+                        mono: ['JetBrains Mono', 'monospace']
                     },
                     colors: {
-                        base: '#0a0e1a',
-                        panel: '#0f1524',
+                        base: '#f8fafc',
+                        panel: '#ffffff'
                     }
                 }
             }
         }
     </script>
 </head>
-<body class="bg-base text-slate-800 font-sans min-h-screen">
-<div th:fragment="content" class="max-w-4xl space-y-6 p-6">
-    <section class="rounded-lg border border-slate-200 bg-panel">
-        <div class="border-b border-slate-200 px-5 py-3">
-            <h2 class="text-sm font-semibold text-slate-700">Connection &amp; Prerequisites</h2>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen">
+<div th:fragment="content" class="max-w-3xl space-y-5 p-2">
+
+    <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div class="border-b border-slate-100 px-5 py-3">
+            <h2 class="text-[14px] font-semibold text-slate-900">Connection &amp; Prerequisites</h2>
         </div>
 
-        <form id="connection-form" th:action="@{/connection/test}" th:object="${config}" method="post" class="space-y-5 px-5 py-5">
+        <form id="connection-form" th:action="@{/connection/test}" th:object="${config}" method="post"
+              class="space-y-5 px-5 py-5">
+
+            <!-- Provider -->
             <div>
-                <label class="mb-1 block text-sm font-medium text-slate-800">Provider</label>
+                <label class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Provider</label>
                 <div class="flex gap-3">
-                    <label th:each="providerOption : ${providerOptions}" class="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-800">
-                        <input type="radio" th:field="*{provider}" th:value="${providerOption}" class="text-cyan-600">
+                    <label th:each="providerOption : ${providerOptions}"
+                           class="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] text-slate-700 hover:bg-white transition cursor-pointer">
+                        <input type="radio" th:field="*{provider}" th:value="${providerOption}"
+                               class="text-blue-600 focus:ring-blue-500">
                         <span th:text="${providerOption.label}">GitHub Copilot</span>
                     </label>
                 </div>
             </div>
 
+            <!-- GitHub token -->
             <div th:if="${config.provider.name() == 'GITHUB_COPILOT'}">
-                <label class="mb-1 block text-sm font-medium text-slate-800">GitHub token</label>
-                <input type="password" th:field="*{githubToken}" class="w-full rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="github_pat_..." autocomplete="off">
-                <p class="mt-1.5 text-xs text-slate-500">A GitHub fine-grained personal access token. Generate one at <a href="https://github.com/settings/tokens?type=beta" target="_blank" class="text-cyan-600 hover:underline">github.com/settings/tokens</a> with the Copilot Requests permission.</p>
+                <label class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">GitHub token</label>
+                <input type="password" th:field="*{githubToken}"
+                       class="w-full h-9 rounded-md border border-slate-200 bg-white px-3 text-[13px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                       placeholder="github_pat_..." autocomplete="off">
+                <p class="mt-1.5 text-[11px] text-slate-500">
+                    A GitHub fine-grained personal access token. Generate one at
+                    <a href="https://github.com/settings/tokens?type=beta" target="_blank"
+                       class="text-blue-600 hover:underline">github.com/settings/tokens</a>
+                    with the Copilot Requests permission.
+                </p>
             </div>
 
+            <!-- Model -->
             <div>
-                <label class="mb-1 block text-sm font-medium text-slate-800">Model</label>
-                <input type="text" th:field="*{model}" class="w-full rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="gpt-4o">
-                <p th:if="${config.provider.name() == 'GITHUB_COPILOT'}" class="mt-1.5 text-xs text-slate-500">The model to request from Copilot, e.g. claude-sonnet-4.5 or gpt-5.</p>
+                <label class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Model</label>
+                <input type="text" th:field="*{model}"
+                       class="w-full h-9 rounded-md border border-slate-200 bg-white px-3 text-[13px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                       placeholder="claude-sonnet-4-5">
+                <p class="mt-1.5 text-[11px] text-slate-500">
+                    The model to request from Copilot, e.g. claude-sonnet-4-5 or gpt-4.1.
+                </p>
             </div>
 
+            <!-- Workspace -->
             <div>
-                <label class="mb-1 block text-sm font-medium text-slate-800">Workspace directory</label>
-                <input type="text" th:field="*{workspaceDir}" class="w-full rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="C:/workspace/relay-orchestrator">
+                <label class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Workspace directory</label>
+                <input type="text" th:field="*{workspaceDir}"
+                       class="w-full h-9 rounded-md border border-slate-200 bg-white px-3 font-mono text-[12px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                       placeholder="C:/workspace/relay-orchestrator">
             </div>
 
+            <!-- Request budget -->
             <div>
-                <label class="mb-1 block text-sm font-medium text-slate-800">Request budget per run</label>
-                <input type="number" th:field="*{requestBudget}" min="1" class="w-32 rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                <label class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Request budget per run</label>
+                <input type="number" th:field="*{requestBudget}" min="1"
+                       class="w-32 h-9 rounded-md border border-slate-200 bg-white px-3 text-[13px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
             </div>
 
-            <button type="button" id="test-connection-btn" class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700">Test Connection</button>
+            <!-- Test button -->
+            <button type="button" id="test-connection-btn"
+                    class="h-9 px-4 rounded-md bg-blue-600 text-white hover:bg-blue-700 font-medium text-[13px] transition disabled:bg-slate-300 disabled:cursor-not-allowed">
+                Test Connection
+            </button>
         </form>
     </section>
 
@@ -118,7 +146,6 @@
             });
         });
     </script>
-
 </div>
 </body>
 </html>

@@ -12,7 +12,9 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
         rel="stylesheet" />
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+        rel="stylesheet" />
     <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3.x.x/dist/cdn.min.js"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="stylesheet" th:href="@{/css/app.css}" />
@@ -34,8 +36,13 @@
         }
     </script>
     <style>
-        [x-cloak] { display: none !important; }
-        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20; }
+        [x-cloak] {
+            display: none !important;
+        }
+
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+        }
     </style>
 </head>
 
@@ -133,32 +140,42 @@
                 <!-- Vertical pipeline stepper (clickable) -->
                 <div class="border-t border-slate-200 mt-2 p-4">
                     <p class="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-400 mb-3">Pipeline</p>
-                    <ol class="space-y-0">
-                        <li th:each="stage, iter : ${pipelineStages}" class="relative">
-                            <a th:href="${stage.href}"
-                                class="relative flex items-start gap-3 pl-7 py-1.5 -mx-1 px-1 rounded-md hover:bg-slate-50 transition group cursor-pointer">
 
-                                <!-- Connector line -->
-                                <span th:if="${!iter.last}"
-                                    class="absolute left-[9px] top-6 h-[calc(100%-8px)] w-px bg-slate-200 group-hover:bg-slate-300"></span>
+                    <ol class="mt-2 space-y-0.5" x-data="{ localStages: [
+            { name: 'Analysis', state: 'queued' },
+            { name: 'Decision', state: 'queued' },
+            { name: 'Compile',  state: 'queued' },
+            { name: 'Test',     state: 'queued' }
+        ] }" x-init="$watch(() => $store.session.current, () => { localStages = $store.session.stages || localStages; }, { immediate: true })">
 
-                                <!-- Step dot -->
-                                <span
-                                    class="absolute left-0 top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 text-[10px] font-bold transition group-hover:scale-110"
-                                    th:classappend="${stage.state == 'done'} ? 'border-emerald-500 bg-emerald-50 text-emerald-600' : (${stage.state == 'active'} ? 'border-blue-600 bg-blue-50 text-blue-700 ring-4 ring-blue-100' : 'border-slate-300 bg-white text-slate-400')"
-                                    th:text="${stage.state == 'done' ? '✓' : (iter.index + 1)}">1</span>
+                        <template x-for="(stage, idx) in localStages" :key="stage.name">
+                            <li>
+                                <div class="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-[12px] transition"
+                                    :class="stage.state === 'active' ? 'bg-blue-50' : ''">
 
-                                <!-- Label -->
-                                <div class="min-w-0">
-                                    <p class="text-xs font-semibold leading-tight"
-                                        th:classappend="${stage.state == 'active'} ? 'text-slate-900' : (${stage.state == 'done'} ? 'text-slate-700' : 'text-slate-500')"
-                                        th:text="${stage.name}">Analysis</p>
-                                    <p class="text-[10px] uppercase tracking-wider mt-0.5"
-                                        th:classappend="${stage.state == 'done'} ? 'text-emerald-600' : (${stage.state == 'active'} ? 'text-blue-600' : 'text-slate-400')"
-                                        th:text="${stage.state}">queued</p>
+                                    <span class="flex h-4 w-4 items-center justify-center shrink-0">
+                                        <svg x-show="stage.state === 'done'" class="h-3.5 w-3.5 text-emerald-500"
+                                            viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd"
+                                                d="M16.704 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.411 0z"
+                                                clip-rule="evenodd" />
+                                        </svg>
+                                        <span x-show="stage.state === 'active'"
+                                            class="h-3.5 w-3.5 rounded-full border-2 border-blue-600 border-t-transparent animate-spin"></span>
+                                        <span x-show="stage.state === 'queued'"
+                                            class="h-1.5 w-1.5 rounded-full bg-slate-300"></span>
+                                    </span>
+
+                                    <span class="flex-1 font-medium truncate" :class="stage.state === 'active' ? 'text-slate-900' :
+                                  (stage.state === 'done' ? 'text-slate-700' : 'text-slate-500')"
+                                        x-text="stage.name"></span>
+
+                                    <span class="text-[10px] font-semibold uppercase tracking-wider" :class="stage.state === 'done' ? 'text-emerald-600' :
+                                  (stage.state === 'active' ? 'text-blue-600' : 'text-slate-400')"
+                                        x-text="stage.state"></span>
                                 </div>
-                            </a>
-                        </li>
+                            </li>
+                        </template>
                     </ol>
                 </div>
 
@@ -288,6 +305,81 @@
                 requestAnimationFrame(() => {
                     logScroll.scrollTop = logScroll.scrollHeight;
                 });
+            }
+        });
+
+        document.addEventListener('alpine:init', () => {
+            Alpine.store('session', {
+                current: null,
+                pending: null,          // 'Analysis' | 'Decision' | 'Compile' while LLM is thinking
+
+                get stages() {
+                    if (this.pending) return stagesFor(this.pending);
+                    return computeStages(this.current?.stage || 'NEW');
+                },
+
+                setSession(s) {
+                    this.current = s;
+                    this.pending = null;
+                },
+
+                setPending(step) {
+                    this.pending = step;
+                }
+            });
+
+            function mk(name, state) { return { name, state }; }
+
+            // What the stepper shows while waiting for an LLM call
+            function stagesFor(pendingStep) {
+                const order = ['Analysis', 'Decision', 'Compile', 'Test'];
+                const idx = order.indexOf(pendingStep);
+                return order.map((name, i) => mk(
+                    name,
+                    i < idx ? 'done' : (i === idx ? 'active' : 'queued')
+                ));
+            }
+
+            function computeStages(stage) {
+                switch (stage) {
+                    case 'NEW':
+                        return stagesFor('Analysis');
+                    case 'AWAITING_ANSWERS':
+                        return stagesFor('Decision');
+                    case 'READY_TO_IMPLEMENT':
+                    case 'IMPLEMENTATION_RUNNING':
+                        return stagesFor('Compile');
+                    case 'IMPLEMENTATION_READY':
+                        return stagesFor('Test');
+                    case 'IMPLEMENTATION_FAILED':
+                    case 'BLOCKED':
+                    case 'CAPPED':
+                    case 'ERROR':
+                        return [mk('Analysis', 'done'), mk('Decision', 'done'), mk('Compile', 'queued'), mk('Test', 'queued')];
+                    default:
+                        return order.map(n => mk(n, 'queued'));
+                }
+            }
+
+            // keep the const for safety
+            const order = ['Analysis', 'Decision', 'Compile', 'Test'];
+
+            // Populate from latest session
+            fetch('/pipeline/sessions?limit=1')
+                .then(r => r.ok ? r.json() : [])
+                .then(arr => {
+                    if (!arr || arr.length === 0) return;
+                    return fetch('/pipeline/session/' + arr[0].sessionId)
+                        .then(r => r.ok ? r.json() : null)
+                        .then(s => { if (s) Alpine.store('session').setSession(s); });
+                })
+                .catch(() => { });
+        });
+
+        // Fallback: if alpine:init never fires (Alpine failed to load), do nothing
+        window.addEventListener('error', (e) => {
+            if (e.message && e.message.includes('Alpine')) {
+                console.error('Alpine failed to load — pipeline stepper will not update:', e);
             }
         });
     </script>
