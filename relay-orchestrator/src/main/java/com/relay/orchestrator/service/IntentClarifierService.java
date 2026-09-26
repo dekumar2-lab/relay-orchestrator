@@ -31,6 +31,12 @@ public class IntentClarifierService {
 
     private static final String TOOL_NAME = "submit_clarification_report";
 
+    /**
+     * TEMPORARY: retrieval disabled until the BM25 swap lands.
+     * Flip to true once RetrievalService is re-enabled.
+     */
+    private static final boolean RETRIEVAL_ENABLED = true;
+
     private final LlmClientRouter llmRouter;
     private final ConnectionConfigService configService;
     private final AgentRegistry agentRegistry;
@@ -39,16 +45,11 @@ public class IntentClarifierService {
     private final TokenMetricsService tokenMetrics;
     private final RetrievalService retrievalService;
 
-    /**
-     * Appended to the system prompt when retrieved code context is available.
-     * Kept separate from the persona so it can be toggled on/off without
-     * editing markdown files.
-     */
     private static final String RETRIEVAL_GUIDANCE = """
 
             RETRIEVED CODE CONTEXT:
             You will be given excerpts of the user's own codebase, retrieved by
-            semantic similarity to the story. Use them to ground your analysis.
+            keyword similarity to the story. Use them to ground your analysis.
 
             - Reference concrete class and method names from the excerpts when
               they are relevant.
@@ -65,7 +66,8 @@ public class IntentClarifierService {
             AgentRegistry agentRegistry,
             LogBroadcaster logBroadcaster,
             TokenTrackerService tokenTracker,
-            TokenMetricsService tokenMetrics, RetrievalService retrievalService) {
+            TokenMetricsService tokenMetrics,
+            RetrievalService retrievalService) {
         this.llmRouter = llmRouter;
         this.configService = configService;
         this.agentRegistry = agentRegistry;
@@ -93,25 +95,23 @@ public class IntentClarifierService {
         AgentPersona persona = agentRegistry.getForRole(AgentRole.ORCHESTRATOR);
 
         String systemPrompt = persona.toSystemPrompt();
-
-        // If we have retrieval context, add guidance on how to use it.
-        // The system prompt is the stable cached prefix, so this change also
-        // helps prompt caching (bigger cached prefix, larger savings).
-        boolean willRetrieve = retrievalService != null;
-        if (willRetrieve) {
+        if (RETRIEVAL_ENABLED && retrievalService != null) {
             systemPrompt = systemPrompt + RETRIEVAL_GUIDANCE;
         }
+
         String model = persona.modelOverride().orElse(config.getModel());
         int maxTokens = persona.maxTokensOverride().orElse(1200);
         double temperature = persona.temperatureOverride().orElse(0.0);
 
-        // Retrieve relevant code chunks from the indexed repos
-        List<RetrievedChunk> retrieved;
-        try {
-            retrieved = retrievalService.retrieveForStory(story);
-        } catch (Exception e) {
-            log.warn("Retrieval failed, proceeding without context: {}", e.getMessage());
-            retrieved = List.of();
+        // TEMPORARY: retrieval disabled pending BM25 migration
+        List<RetrievedChunk> retrieved = List.of();
+        if (RETRIEVAL_ENABLED && retrievalService != null) {
+            try {
+                retrieved = retrievalService.retrieveForStory(story);
+            } catch (Exception e) {
+                log.warn("Retrieval failed, proceeding without context: {}", e.getMessage());
+                retrieved = List.of();
+            }
         }
 
         if (!retrieved.isEmpty()) {
@@ -150,7 +150,7 @@ public class IntentClarifierService {
             return ClarificationResult.error(e.getMessage());
         }
 
-        tokenTracker.logAnthropicUsage(
+        tokenTracker.logUsage(
                 "CLARIFIER_RUN",
                 response.modelUsed(),
                 response.inputTokens(),
@@ -195,20 +195,6 @@ public class IntentClarifierService {
         return result;
     }
 
-    /**
-     * Compose the single user message including accumulated Q&A context
-     * and (optionally) retrieved code chunks from the indexed repo.
-     *
-     * Uses one message rather than multi-turn history because the clarifier
-     * runs one-shot per turn — Anthropic holds no session state.
-     */
-    /**
-     * Compose the single user message including accumulated Q&A context
-     * and (optionally) retrieved code chunks from the indexed repo.
-     *
-     * Uses one message rather than multi-turn history because the clarifier
-     * runs one-shot per turn — Anthropic holds no session state.
-     */
     private String composeUserMessage(String story,
             List<AnsweredQuestion> history,
             boolean lastChance,
@@ -216,7 +202,6 @@ public class IntentClarifierService {
 
         StringBuilder sb = new StringBuilder();
 
-        // 1. Retrieved code context (if any)
         if (retrieved != null && !retrieved.isEmpty()) {
             sb.append("RETRIEVED CODE FROM THE USER'S INDEXED REPOSITORY:\n\n");
             for (int i = 0; i < retrieved.size(); i++) {
@@ -231,10 +216,16 @@ public class IntentClarifierService {
             sb.append("---\n\n");
         }
 
-        // 2. Original story
         sb.append("Original story:\n").append(story).append("\n\n");
 
-        // 3. Previous Q&A
+        // NEW: Force NEEDS_INPUT when flying blind
+        if (retrieved == null || retrieved.isEmpty()) {
+            sb.append("CRITICAL CONTEXT WARNING:\n")
+                    .append("You currently have NO access to the user's codebase. You cannot see their language, framework, or file structure. ")
+                    .append("You MUST set state to NEEDS_INPUT and ask clarifying questions to determine the tech stack and implementation location. ")
+                    .append("Do NOT assume the framework or file paths. Do NOT set state to READY.\n\n");
+        }
+
         if (history != null && !history.isEmpty()) {
             sb.append("Previous clarifying questions and answers:\n");
             int qNum = 1;
@@ -248,7 +239,6 @@ public class IntentClarifierService {
             }
         }
 
-        // 4. Last-chance instruction
         if (lastChance) {
             sb.append("IMPORTANT: This is the final turn. You must NOT ask any more questions. ")
                     .append("Produce a READY state with the best assumptions you can make, ")
@@ -259,46 +249,6 @@ public class IntentClarifierService {
         sb.append("Now provide an updated clarification report for the original story.");
         return sb.toString();
     }
-
-    /**
-     * Compose the single user message including accumulated Q&A context.
-     * We use one message rather than a multi-turn history because the
-     * clarifier runs one-shot per turn — Anthropic holds no session state.
-     */
-    private String composeUserMessage(String story, List<AnsweredQuestion> history,
-            boolean lastChance) {
-        if (history == null || history.isEmpty()) {
-            return story;
-        }
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("Original story:\n").append(story).append("\n\n");
-        sb.append("Previous clarifying questions and answers:\n");
-
-        int qNum = 1;
-        for (AnsweredQuestion a : history) {
-            sb.append("Q").append(qNum).append(": ").append(a.question()).append("\n");
-            if (a.why() != null && !a.why().isBlank()) {
-                sb.append("   (why: ").append(a.why()).append(")\n");
-            }
-            sb.append("A").append(qNum).append(": ").append(a.answer()).append("\n\n");
-            qNum++;
-        }
-
-        if (lastChance) {
-            sb.append("IMPORTANT: This is the final turn. You must NOT ask any more questions. ")
-                    .append("Produce a READY state with the best assumptions you can make, ")
-                    .append("or BLOCKED if the story cannot be implemented. ")
-                    .append("Set confidence to LOW if you are forced to proceed without complete info.\n\n");
-        }
-
-        sb.append("Now provide an updated clarification report for the original story.");
-        return sb.toString();
-    }
-
-    // ----------------------------------------------------------------
-    // Tool schema (built imperatively — avoids deep Map.of nesting)
-    // ----------------------------------------------------------------
 
     private LlmClient.ToolDefinition buildClarificationTool() {
         Map<String, Object> properties = new LinkedHashMap<>();
@@ -319,30 +269,22 @@ public class IntentClarifierService {
                 List.of("low", "medium", "high", "unknown"),
                 "Rough size estimate."));
 
-        properties.put("riskNotes", stringArrayProp(
-                "Concrete risks. Empty array if none."));
-
-        properties.put("assumptionsMade", stringArrayProp(
-                "Assumptions filled in for missing info. Empty if none."));
-
-        properties.put("relevantFiles", stringArrayProp(
-                "Files likely affected. Empty when no repo context available."));
-
-        properties.put("symbolsLikelyAffected", stringArrayProp(
-                "Methods/classes likely touched. Empty when no repo context available."));
-
+        properties.put("riskNotes", stringArrayProp("Concrete risks. Empty array if none."));
+        properties.put("assumptionsMade", stringArrayProp("Assumptions filled in for missing info. Empty if none."));
+        properties.put("relevantFiles",
+                stringArrayProp("Files likely affected. Empty when no repo context available."));
+        properties.put("symbolsLikelyAffected",
+                stringArrayProp("Methods/classes likely touched. Empty when no repo context available."));
         properties.put("questions", questionsProp());
 
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("type", "object");
         schema.put("properties", properties);
-        schema.put("required", List.of(
-                "state", "confidence", "summary", "estimatedComplexity"));
+        schema.put("required", List.of("state", "confidence", "summary", "estimatedComplexity"));
 
         return new LlmClient.ToolDefinition(
                 TOOL_NAME,
-                "Submit the structured analysis of a feature story. "
-                        + "You MUST call this tool every time.",
+                "Submit the structured analysis of a feature story. You MUST call this tool every time.",
                 schema);
     }
 
@@ -387,10 +329,6 @@ public class IntentClarifierService {
         return p;
     }
 
-    // ----------------------------------------------------------------
-    // Extraction
-    // ----------------------------------------------------------------
-
     private ClarificationResult fromToolArguments(Map<String, Object> args) {
         ClarificationResult.State state = parseState(stringOr(args, "state", "BLOCKED"));
         ClarificationResult.Confidence confidence = parseConfidence(stringOr(args, "confidence", "LOW"));
@@ -404,8 +342,7 @@ public class IntentClarifierService {
         List<ClarifyingQuestion> questions = toQuestions(args.get("questions"));
 
         if (state == ClarificationResult.State.READY && !questions.isEmpty()) {
-            log.warn("Clarifier returned READY with {} questions — downgrading to NEEDS_INPUT",
-                    questions.size());
+            log.warn("Clarifier returned READY with {} questions — downgrading to NEEDS_INPUT", questions.size());
             state = ClarificationResult.State.NEEDS_INPUT;
         }
         if (state == ClarificationResult.State.NEEDS_INPUT && questions.isEmpty()) {

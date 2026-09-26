@@ -15,6 +15,15 @@ public enum PipelineStage {
     /** Clarifier produced READY; the session can proceed to implementation. */
     READY_TO_IMPLEMENT,
 
+    /** Implementer loop is running for this session. */
+    IMPLEMENTATION_RUNNING,
+
+    /** Implementer produced a diff ready for user review. */
+    IMPLEMENTATION_READY,
+
+    /** Implementer failed. Terminal. */
+    IMPLEMENTATION_FAILED,
+
     /** Clarifier produced BLOCKED; terminal state. */
     BLOCKED,
 
@@ -25,7 +34,8 @@ public enum PipelineStage {
     ERROR;
 
     public boolean isTerminal() {
-        return this == BLOCKED || this == CAPPED || this == ERROR;
+        return this == BLOCKED || this == CAPPED || this == ERROR
+                || this == IMPLEMENTATION_FAILED;
     }
 
     public boolean isAwaitingUser() {

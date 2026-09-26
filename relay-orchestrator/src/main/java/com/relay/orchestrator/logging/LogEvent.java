@@ -40,10 +40,10 @@ public record LogEvent(LocalTime timestamp, Level level, String message) {
     /** Renders this event as the small HTML row the log panel appends via SSE. */
     public String toHtmlRow() {
         String levelClass = switch (level) {
-            case INFO -> "text-slate-400";
-            case WARN -> "text-amber-400";
-            case ERROR -> "text-red-400";
-            case SUCCESS -> "text-emerald-400";
+            case INFO -> "text-slate-600";
+            case WARN -> "text-amber-600";
+            case ERROR -> "text-red-600";
+            case SUCCESS -> "text-emerald-600";
         };
         String escaped = message
                 .replace("&", "&amp;")
@@ -53,7 +53,7 @@ public record LogEvent(LocalTime timestamp, Level level, String message) {
                 <div class="font-mono text-sm leading-6 whitespace-pre-wrap break-words">\
                 <span class="text-slate-600">%s</span> \
                 <span class="%s font-semibold">[%s]</span> \
-                <span class="text-slate-200">%s</span></div>"""
+                <span class="text-slate-800">%s</span></div>"""
                 .formatted(timestamp.format(TIME_FORMAT), levelClass, level, escaped);
     }
 }

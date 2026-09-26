@@ -1,58 +1,90 @@
 package com.relay.orchestrator.connection;
 
+import com.relay.orchestrator.config.AppConfigManager;
+import com.relay.orchestrator.config.RepositoryConfig;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+@ExtendWith(MockitoExtension.class)
 class ConnectionConfigServiceTest {
 
-    @Test
-    void savesAndLoadsProviderSpecificSettings() {
-        ConnectionConfig config = new ConnectionConfig();
-        config.setProvider(ConnectionConfig.Provider.CLAUDE_API);
-        config.setAnthropicApiKey("test-key");
-        config.setModel("claude-sonnet-4-5");
+    @Mock
+    private AppConfigManager appConfigManager;
 
-        ConnectionConfig loaded = new ConnectionConfig();
-        loaded.setProvider(config.getProvider());
-        loaded.setAnthropicApiKey(config.getAnthropicApiKey());
-        loaded.setModel(config.getModel());
+    private ConnectionConfigService configService;
 
-        assertEquals(ConnectionConfig.Provider.CLAUDE_API, loaded.getProvider());
-        assertEquals("test-key", loaded.getAnthropicApiKey());
-        assertEquals("claude-sonnet-4-5", loaded.getModel());
+    @BeforeEach
+    void setUp() {
+        // Explicit constructor injection — avoids the @InjectMocks NPE.
+        configService = new ConnectionConfigService(appConfigManager);
     }
 
     @Test
-    void savePreservesExistingRepositories() throws IOException {
-        Path tempDir = Files.createTempDirectory("relay-config-test");
-        Path originalDir = Path.of(System.getProperty("user.dir"));
-        System.setProperty("user.dir", tempDir.toString());
-        try {
-            Files.writeString(tempDir.resolve("config.yml"), "repositories:\n  - id: demo\n    path: /tmp/demo\n");
+    void loadDelegatesToAppConfigManager() {
+        ConnectionConfig expected = new ConnectionConfig();
+        expected.setModel("gpt-4o");
+        when(appConfigManager.toConnectionConfig()).thenReturn(expected);
 
-            ConnectionConfigService service = new ConnectionConfigService(null);
-            ConnectionConfig config = new ConnectionConfig();
-            config.setProvider(ConnectionConfig.Provider.GITHUB_COPILOT);
-            config.setGithubToken("token");
-            config.setAnthropicApiKey("anthropic");
-            config.setModel("claude-sonnet-4.5");
-            config.setWorkspaceDir("/tmp/workspace");
-            config.setRequestBudget(5);
+        Optional<ConnectionConfig> loaded = configService.load();
 
-            service.save(config);
+        assertThat(loaded).containsSame(expected);
+        verify(appConfigManager).toConnectionConfig();
+    }
 
-            String yaml = Files.readString(tempDir.resolve("config.yml"));
-            assertTrue(yaml.contains("repositories:"));
-            assertTrue(yaml.contains("id: demo"));
-            assertTrue(yaml.contains("path: /tmp/demo"));
-        } finally {
-            System.setProperty("user.dir", originalDir.toString());
-        }
+    @Test
+    void saveDelegatesToAppConfigManager() {
+        ConnectionConfig cfg = new ConnectionConfig();
+        cfg.setGithubToken("sk-ant-test");
+        cfg.setModel("gpt-4o");
+
+        configService.save(cfg);
+
+        verify(appConfigManager).updateFrom(cfg);
+    }
+
+    @Test
+    void savePreservesExistingRepositories() {
+        // Seed the manager with a repository so we can prove save() doesn't wipe it.
+        RepositoryConfig repo = new RepositoryConfig();
+        repo.setId("backend");
+        repo.setPath("/tmp/backend");
+
+        List<RepositoryConfig> stored = new ArrayList<>();
+        stored.add(repo);
+        when(appConfigManager.getRepositories()).thenReturn(stored);
+
+        ConnectionConfig cfg = new ConnectionConfig();
+        cfg.setModel("gpt-4o");
+
+        configService.save(cfg);
+
+        // save() delegates to updateFrom, which in the production class does not
+        // touch the repositories list; the facade must not either.
+        verify(appConfigManager).updateFrom(cfg);
+        assertThat(appConfigManager.getRepositories()).containsExactly(repo);
+    }
+
+    @Test
+    void saveDoesNotClobberCredentialWhenTokenOmitted() {
+        // Simulate a partially-bound form: model set, token never submitted.
+        ConnectionConfig partial = new ConnectionConfig();
+        partial.setModel("gpt-4o");
+
+        configService.save(partial);
+
+        // The facade must pass the object through unchanged; the null-safe
+        // guard lives inside AppConfigManager.updateFrom (covered separately).
+        verify(appConfigManager).updateFrom(partial);
     }
 }

@@ -25,8 +25,6 @@ public class AppConfigManager {
 
     private static final Logger log = LoggerFactory.getLogger(AppConfigManager.class);
 
-    // Prefer the project-local config file, then fall back to
-    // ~/.relay-orchestrator/config.yml
     private final Path configPath = resolveConfigPath();
 
     private AgentConfig agentConfig = AgentConfig.defaults();
@@ -47,11 +45,9 @@ public class AppConfigManager {
         return Paths.get(System.getProperty("user.home"), ".relay-orchestrator", "config.yml");
     }
 
-    // Loaded operational values stored in-memory
     private String githubToken = "";
-    private String anthropicApiKey = "";
     private String workspaceDir = "";
-    private String model = "claude-sonnet-4-5";
+    private String model = "gpt-4o";
     private int requestBudget = 20;
     private String provider = "GITHUB_COPILOT";
     private final List<RepositoryConfig> repositories = new ArrayList<>();
@@ -61,9 +57,6 @@ public class AppConfigManager {
         loadSettingsFromDisk();
     }
 
-    /**
-     * Reads and parses YAML settings from disk. Falls back safely if missing.
-     */
     @SuppressWarnings("unchecked")
     public synchronized void loadSettingsFromDisk() {
         if (!Files.exists(configPath)) {
@@ -83,15 +76,12 @@ public class AppConfigManager {
                 return;
             }
 
-            // Load Phase 1 parameters safely
             this.githubToken = (String) data.getOrDefault("githubToken", "");
-            this.anthropicApiKey = (String) data.getOrDefault("anthropicApiKey", "");
             this.workspaceDir = (String) data.getOrDefault("workspaceDir", "");
-            this.model = (String) data.getOrDefault("model", "claude-sonnet-4-5");
+            this.model = (String) data.getOrDefault("model", "gpt-4o");
             this.provider = String.valueOf(data.getOrDefault("provider", "GITHUB_COPILOT"));
             this.requestBudget = (Integer) data.getOrDefault("requestBudget", 20);
 
-            // Load and transform Phase 2 repositories list mapping arrays
             this.repositories.clear();
             List<Map<String, Object>> repoList = (List<Map<String, Object>>) data.get("repositories");
             if (repoList != null) {
@@ -117,9 +107,8 @@ public class AppConfigManager {
                 addDefaultBackendRepositoryIfPresent();
             }
 
-            // Parse agents block if present
             this.agentConfig = parseAgentConfig(data.get("agents"));
-            
+
             log.info("Agent config: enabled={} roles={} searchPaths={}",
                     agentConfig.enabled(),
                     agentConfig.roleToPersona(),
@@ -131,7 +120,7 @@ public class AppConfigManager {
         }
     }
 
-           @SuppressWarnings("unchecked")
+    @SuppressWarnings("unchecked")
     private AgentConfig parseAgentConfig(Object raw) {
         if (!(raw instanceof Map<?, ?> rawMap)) {
             return AgentConfig.defaults();
@@ -198,24 +187,17 @@ public class AppConfigManager {
         this.repositories.add(repo);
     }
 
-    /**
-     * Serializes the current in-memory configurations directly into structured YAML
-     * markup.
-     */
     public synchronized void flushSettingsToDisk() {
         try {
-            // Ensure parent directory infrastructure exists securely
             Files.createDirectories(configPath.getParent());
 
             Map<String, Object> rawData = new LinkedHashMap<>();
             rawData.put("provider", this.provider);
             rawData.put("githubToken", this.githubToken);
-            rawData.put("anthropicApiKey", this.anthropicApiKey);
             rawData.put("workspaceDir", this.workspaceDir);
             rawData.put("model", this.model);
             rawData.put("requestBudget", this.requestBudget);
 
-            // Structure our sub-nodes array maps objects
             List<Map<String, Object>> repoListMaps = new ArrayList<>();
             for (RepositoryConfig repo : this.repositories) {
                 Map<String, Object> rMap = new LinkedHashMap<>();
@@ -231,7 +213,6 @@ public class AppConfigManager {
             }
             rawData.put("repositories", repoListMaps);
 
-                        // Persist agents block
             Map<String, Object> agentsBlock = new LinkedHashMap<>();
             agentsBlock.put("enabled", this.agentConfig.enabled());
             agentsBlock.put("searchPaths", this.agentConfig.searchPaths());
@@ -253,8 +234,7 @@ public class AppConfigManager {
             agentsBlock.put("fallbackPersona", this.agentConfig.fallbackPersona());
 
             rawData.put("agents", agentsBlock);
-            
-            // Configure pretty printing styling formatting output constraints
+
             DumperOptions options = new DumperOptions();
             options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
             options.setPrettyFlow(true);
@@ -269,15 +249,10 @@ public class AppConfigManager {
         }
     }
 
-        /**
-     * Snapshot of the connection-related settings as a ConnectionConfig,
-     * for use by the connection checkers and the Settings form.
-     */
     public ConnectionConfig toConnectionConfig() {
         ConnectionConfig cfg = new ConnectionConfig();
         cfg.setProvider(parseProvider(this.provider));
         cfg.setGithubToken(this.githubToken);
-        cfg.setAnthropicApiKey(this.anthropicApiKey);
         cfg.setModel(this.model);
         cfg.setWorkspaceDir(this.workspaceDir);
         cfg.setRequestBudget(this.requestBudget);
@@ -285,16 +260,33 @@ public class AppConfigManager {
     }
 
     /**
-     * Merge a ConnectionConfig back into the manager and persist.
-     * Repositories are untouched.
+     * Null-safe merge. Fields left null/blank on the incoming config are treated
+     * as "no change" so a partially-bound settings form can never wipe stored
+     * credentials on disk. This is the fix for the split-brain bug where an empty
+     * GitHub token field cleared the persisted token on save.
      */
     public synchronized void updateFrom(ConnectionConfig cfg) {
-        this.provider = cfg.getProvider().name();
-        this.githubToken = cfg.getGithubToken();
-        this.anthropicApiKey = cfg.getAnthropicApiKey();
-        this.model = cfg.getModel();
-        this.workspaceDir = cfg.getWorkspaceDir();
-        this.requestBudget = cfg.getRequestBudget();
+        if (cfg == null) {
+            log.warn("updateFrom called with null config; ignoring.");
+            return;
+        }
+
+        if (cfg.getProvider() != null) {
+            this.provider = cfg.getProvider().name();
+        }
+        if (cfg.getGithubToken() != null && !cfg.getGithubToken().isBlank()) {
+            this.githubToken = cfg.getGithubToken();
+        }
+        if (cfg.getModel() != null && !cfg.getModel().isBlank()) {
+            this.model = cfg.getModel();
+        }
+        if (cfg.getWorkspaceDir() != null) {
+            this.workspaceDir = cfg.getWorkspaceDir();
+        }
+        if (cfg.getRequestBudget() > 0) {
+            this.requestBudget = cfg.getRequestBudget();
+        }
+
         flushSettingsToDisk();
     }
 
@@ -306,22 +298,12 @@ public class AppConfigManager {
         }
     }
 
-    
-    // --- Accessor Getter and Setter Methods ---
     public String getGithubToken() {
         return githubToken;
     }
 
     public void setGithubToken(String token) {
         this.githubToken = token;
-    }
-
-    public String getAnthropicApiKey() {
-        return anthropicApiKey;
-    }
-
-    public void setAnthropicApiKey(String anthropicApiKey) {
-        this.anthropicApiKey = anthropicApiKey;
     }
 
     public String getWorkspaceDir() {

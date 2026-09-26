@@ -10,7 +10,7 @@ import com.relay.orchestrator.logging.LogEvent;
 import com.relay.orchestrator.retrieval.ChunkBuilder;
 import com.relay.orchestrator.retrieval.ChunkRepository;
 import com.relay.orchestrator.retrieval.CodeChunk;
-import com.relay.orchestrator.retrieval.EmbeddingService;
+import com.relay.orchestrator.retrieval.LuceneIndexService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,16 +23,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 
-/**
- * Language-agnostic repo indexer.
- *
- * Walks every file in the repo, asks LanguageRegistry which LanguageSupport
- * handles it, parses it into ParsedFile, and stores the resulting CodeUnits
- * and MethodUnits through IndexRepository.
- *
- * Zero JavaParser imports here - all language-specific logic lives in
- * lang/java/JavaCodeParser.
- */
 @Service
 public class RepoIndexerService {
 
@@ -43,20 +33,20 @@ public class RepoIndexerService {
     private final LogBroadcaster logBroadcaster;
     private final ChunkBuilder chunkBuilder;
     private final ChunkRepository chunkRepository;
-    private final EmbeddingService embeddingService;
+    private final LuceneIndexService luceneIndexService;
 
     public RepoIndexerService(IndexRepository indexRepository,
             LanguageRegistry languageRegistry,
             LogBroadcaster logBroadcaster,
             ChunkBuilder chunkBuilder,
             ChunkRepository chunkRepository,
-            EmbeddingService embeddingService) {
+            LuceneIndexService luceneIndexService) {
         this.indexRepository = indexRepository;
         this.languageRegistry = languageRegistry;
         this.logBroadcaster = logBroadcaster;
         this.chunkBuilder = chunkBuilder;
         this.chunkRepository = chunkRepository;
-        this.embeddingService = embeddingService;
+        this.luceneIndexService = luceneIndexService;
     }
 
     public void indexRepository(String repoId, Path repoPath) throws Exception {
@@ -64,12 +54,6 @@ public class RepoIndexerService {
                 "Scanning repository details for workspace target: " + repoId + "..."));
 
         indexRepository.clearRepoIndex(repoId);
-        boolean embeddingsReady = embeddingService.isAvailable();
-        if (!embeddingsReady) {
-            logBroadcaster.publish(LogEvent.warn(
-                    "Embedding service unavailable (" + embeddingService.unavailableReason()
-                            + ") — chunks will NOT be built. Re-index once the model is ready."));
-        }
 
         if (!Files.exists(repoPath)) {
             throw new IOException("Target folder path does not exist on filesystem: " + repoPath);
@@ -89,8 +73,7 @@ public class RepoIndexerService {
         int indexedClasses = 0;
         int indexedMethods = 0;
         int indexedChunks = 0;
-        long embedStartNanos = System.nanoTime();
-        ;
+        long startNanos = System.nanoTime();
 
         for (Path file : candidateFiles) {
             Optional<LanguageSupport> maybeLang = languageRegistry.forFile(file);
@@ -104,10 +87,7 @@ public class RepoIndexerService {
                 StoreCounts counts = storeParsedFile(repoId, parsed);
                 indexedClasses += counts.classes;
                 indexedMethods += counts.methods;
-
-                if (embeddingsReady) {
-                    indexedChunks += chunkAndEmbed(repoId, parsed);
-                }
+                indexedChunks += storeChunks(repoId, parsed);
             } catch (Exception e) {
                 String warningMsg = "Parsing failure skipped inside file '" + file.getFileName()
                         + "' (" + language.id() + "): " + e.getMessage();
@@ -116,27 +96,33 @@ public class RepoIndexerService {
             }
         }
 
-        long totalMs = (System.nanoTime() - embedStartNanos) / 1_000_000;
-        String chunkSuffix = embeddingsReady
-                ? ", " + indexedChunks + " chunks embedded in " + totalMs + " ms"
-                : ", chunks skipped (embedding unavailable)";
+        long totalMs = (System.nanoTime() - startNanos) / 1_000_000;
 
         logBroadcaster.publish(LogEvent.success(
                 "Indexing pipeline successfully finalized for target [" + repoId
                         + "]. Found " + indexedClasses + " classes, "
-                        + indexedMethods + " methods" + chunkSuffix + "."));
+                        + indexedMethods + " methods, "
+                        + indexedChunks + " chunks stored in " + totalMs + " ms."));
+
+        logBroadcaster.publish(LogEvent.success(
+                "Indexing pipeline successfully finalized for target [" + repoId
+                        + "]. Found " + indexedClasses + " classes, "
+                        + indexedMethods + " methods, "
+                        + indexedChunks + " chunks stored in " + totalMs + " ms."));
+
+        // NEW: refresh the BM25 index so retrieval can see the fresh chunks.
+        luceneIndexService.rebuildIndex();
     }
 
-    private int chunkAndEmbed(String repoId, ParsedFile parsed) {
+    private int storeChunks(String repoId, ParsedFile parsed) {
         List<CodeChunk> chunks = chunkBuilder.build(repoId, parsed);
         int stored = 0;
         for (CodeChunk chunk : chunks) {
             try {
-                float[] vector = embeddingService.embed(chunk.content());
-                chunkRepository.insert(chunk, vector);
+                chunkRepository.insert(chunk);
                 stored++;
             } catch (Exception e) {
-                log.warn("Failed to embed chunk {}: {}", chunk.qualifiedName(), e.getMessage());
+                log.warn("Failed to store chunk {}: {}", chunk.qualifiedName(), e.getMessage());
             }
         }
         return stored;

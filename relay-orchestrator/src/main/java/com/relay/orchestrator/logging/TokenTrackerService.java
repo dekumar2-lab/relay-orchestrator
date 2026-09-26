@@ -1,8 +1,8 @@
 package com.relay.orchestrator.logging;
 
 import org.springframework.stereotype.Service;
+
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,10 +15,14 @@ public class TokenTrackerService {
     private int totalTokens = 0;
     private double totalCost = 0.0;
 
-    public synchronized void logAnthropicUsage (String agentName, String model, int inputTokens, int outputTokens) {
+    /**
+     * Legacy in-memory ledger. Cost is estimated using Anthropic Sonnet rates
+     * as a reference — Copilot is a subscription, but the estimate gives the
+     * user a sense of what equivalent API usage would cost.
+     */
+    public synchronized void logUsage(String agentName, String model, int inputTokens, int outputTokens) {
         int totalRunTokens = inputTokens + outputTokens;
 
-        // Commercial API Pricing estimation: Claude 3.5 Sonnet / Haiku averages
         double inputCost = (inputTokens / 1_000_000.0) * 3.0;
         double outputCost = (outputTokens / 1_000_000.0) * 15.0;
         double runCost = inputCost + outputCost;
@@ -33,7 +37,7 @@ public class TokenTrackerService {
         tx.put("tokensUsed", totalRunTokens);
         tx.put("costUsd", runCost);
 
-        transactions.add(0, tx); // Inserts fresh transactions at the top of the table track ledger
+        transactions.add(0, tx);
     }
 
     public List<Map<String, Object>> getTransactions() {

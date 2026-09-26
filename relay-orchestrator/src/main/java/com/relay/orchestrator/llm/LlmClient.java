@@ -60,11 +60,37 @@ public interface LlmClient {
         }
     }
 
-    record Message(String role, String content) {
+    record Message(
+            String role,
+            String content,
+            String toolCallId,
+            List<ToolCall> toolCalls) {
+
+        public Message(String role, String content) {
+            this(role, content, null, null);
+        }
+
         public Message {
-            if (!"user".equals(role) && !"assistant".equals(role)) {
-                throw new IllegalArgumentException("role must be user or assistant, got: " + role);
+            if (!"user".equals(role) && !"assistant".equals(role) && !"tool".equals(role)) {
+                throw new IllegalArgumentException(
+                        "role must be user, assistant, or tool, got: " + role);
             }
+        }
+
+        public static Message user(String content) {
+            return new Message("user", content);
+        }
+
+        public static Message assistant(String content) {
+            return new Message("assistant", content);
+        }
+
+        public static Message assistantWithToolCalls(List<ToolCall> calls) {
+            return new Message("assistant", null, null, calls);
+        }
+
+        public static Message toolResult(String toolCallId, String content) {
+            return new Message("tool", content, toolCallId, null);
         }
     }
 
@@ -81,9 +107,9 @@ public interface LlmClient {
     record ToolChoice(Mode mode, String toolName) {
 
         public enum Mode {
-            AUTO,       // model decides whether to use a tool
-            REQUIRED,   // model must use some tool
-            SPECIFIC    // model must use the named tool
+            AUTO, // model decides whether to use a tool
+            REQUIRED, // model must use some tool
+            SPECIFIC // model must use the named tool
         }
 
         public static ToolChoice auto() {
@@ -138,8 +164,13 @@ public interface LlmClient {
     }
 
     record ProbeResult(boolean ok, String detail) {
-        public static ProbeResult ok(String detail)  { return new ProbeResult(true, detail); }
-        public static ProbeResult fail(String detail) { return new ProbeResult(false, detail); }
+        public static ProbeResult ok(String detail) {
+            return new ProbeResult(true, detail);
+        }
+
+        public static ProbeResult fail(String detail) {
+            return new ProbeResult(false, detail);
+        }
     }
 
     @FunctionalInterface

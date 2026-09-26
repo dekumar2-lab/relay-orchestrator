@@ -1,151 +1,139 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
-<head>
-    <meta charset="UTF-8">
-    <title>Repositories Fragment</title>
-</head>
 <body>
+<div th:fragment="content" class="grid grid-cols-3 gap-5">
 
-<div th:fragment="content" class="grid grid-cols-3 gap-6">
+    <!-- Left column: form + list -->
+    <div class="col-span-2 space-y-5">
 
-    <!-- Left Column: Repository Cards Management Workspace -->
-    <div class="col-span-2 space-y-6">
-        
-        <!-- Add Directory Target Card Form Container -->
-        <div class="rounded-lg border border-slate-800 bg-[#0f1524] p-5 shadow-xl">
-            <h3 class="text-sm font-semibold text-white uppercase tracking-wider mb-4">Add Local Repository Target</h3>
-            <form th:action="@{/repositories/add}" method="post" class="space-y-4" id="repo-form">
-                <div class="grid grid-cols-3 gap-4">
-                    <div class="col-span-1">
-                        <label class="block text-[10px] uppercase font-bold text-slate-500 mb-1 tracking-wider">Repository ID</label>
-                        <input type="text" name="id" required placeholder="billing-service" 
-                               class="w-full rounded bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
+        <!-- Add repo form -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+            <div class="flex items-center justify-between pb-3">
+                <div class="flex items-center gap-2">
+                    <span class="w-6 h-6 rounded-lg bg-slate-100 flex items-center justify-center text-blue-600">
+                        <span class="material-symbols-outlined text-[15px]">folder_open</span>
+                    </span>
+                    <h2 class="text-[14px] font-semibold text-slate-900">Add Local Repository Target</h2>
+                </div>
+                <span class="text-[10px] font-semibold text-slate-500 bg-slate-50 px-2 py-0.5 rounded-full uppercase tracking-wider">v2</span>
+            </div>
+
+            <form th:action="@{/repositories/add}" method="post" id="repo-form" class="space-y-3">
+                <div class="grid grid-cols-3 gap-3">
+                    <div>
+                        <label for="repo-id" class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">Repository ID</label>
+                        <input id="repo-id" type="text" name="id" required placeholder="core-identity-svc"
+                               class="w-full h-8 px-3 rounded-md bg-slate-50 border border-transparent font-mono text-[12px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition">
                     </div>
                     <div class="col-span-2">
-                        <label class="block text-[10px] uppercase font-bold text-slate-500 mb-1 tracking-wider">Absolute Filesystem Path</label>
-                        <input type="text" name="path" required placeholder="D:\Projects\billing-service" 
-                               class="w-full rounded bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
+                        <label for="repo-path" class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">Absolute Filesystem Path</label>
+                        <input id="repo-path" type="text" name="path" required placeholder="D:\Projects\billing-service"
+                               class="w-full h-8 px-3 rounded-md bg-slate-50 border border-transparent font-mono text-[12px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition">
                     </div>
                 </div>
-                <div th:if="${error}" class="p-2 text-xs bg-red-950/40 text-red-400 rounded border border-red-900/60 font-mono" th:text="${error}"></div>
-                <button type="submit" data-busy-label="Saving..." class="rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs uppercase tracking-wider px-4 py-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
-                    Save Configuration
-                </button>
+
+                <div th:if="${error}" th:text="${error}"
+                     class="rounded-md bg-red-50 border border-red-200 p-2.5 text-[12px] text-red-700 font-mono"></div>
+
+                <div class="flex justify-end">
+                    <button type="submit"
+                            class="h-8 px-3.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 font-medium text-[13px] flex items-center gap-1.5 shadow-sm transition disabled:bg-slate-300">
+                        <span class="material-symbols-outlined text-[16px]">save</span>
+                        Save Configuration
+                    </button>
+                </div>
             </form>
         </div>
 
-        <!-- Monitored Paths List Section Workspace -->
-        <div class="rounded-lg border border-slate-800 bg-[#0f1524] shadow-xl">
-            <div class="border-b border-slate-800 px-5 py-3 flex justify-between items-center">
-                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Monitored Mapped Directories</h3>
-                <!-- Force HTMX to run explicitly on click without template locks -->
-                <button type="button" th:attr="hx-post=@{/repositories/build-all}, hx-swap='none'" data-busy-label="Building all..."
-        class="text-[10px] uppercase font-bold tracking-wider bg-slate-900 border border-slate-700 hover:border-slate-600 px-2.5 py-1.5 rounded text-emerald-400 transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed">
-    ⚡ Build All Outdated
-</button>
-
-            </div>
-            
-            <div class="p-5 space-y-4 divide-y divide-slate-800/80">
-                <div th:if="${repositories == null or repositories.empty}" class="text-center py-8 text-xs text-slate-500 italic font-mono">
-                    No active repository modules found inside config settings.
+        <!-- Repositories list -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2">
+                    <h3 class="text-[14px] font-semibold text-slate-900">Monitored Mapped Directories</h3>
+                    <span class="font-mono text-[11px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded-full"
+                          th:text="${repositories != null ? repositories.size() : 0}">0</span>
                 </div>
-                
-                <!-- Active Rows Container Map Loops -->
-                <div th:each="repo : ${repositories}" class="flex justify-between items-center pt-4 first:pt-0">
-                    <div class="space-y-1">
-                        <div class="flex items-center gap-2.5">
-                            <span class="font-bold text-slate-200 font-mono text-sm" th:text="${repo.id}">payment-service</span>
-                            <span th:if="${repo.status.name() == 'NOT_INDEXED'}" class="px-2 py-0.5 text-[9px] rounded-full bg-slate-900 text-slate-400 font-bold border border-slate-700 font-sans">NOT INDEXED</span>
-                            <span th:if="${repo.status.name() == 'INDEXED'}" class="px-2 py-0.5 text-[9px] rounded-full bg-emerald-950/60 text-emerald-400 font-bold border border-emerald-900/60 font-sans">INDEXED</span>
-                            <span th:if="${repo.status.name() == 'STALE'}" class="px-2 py-0.5 text-[9px] rounded-full bg-amber-950/60 text-amber-400 font-bold border border-amber-800/60 font-sans">STALE</span>
-                            <span th:if="${repo.status.name() == 'NEEDS_REINDEX'}"
-                                class="px-2 py-0.5 text-[9px] rounded-full bg-purple-950/60 text-purple-400 font-bold border border-purple-900/60 font-sans">
-                                NEEDS REINDEX
-                            </span>
-                            <span th:if="${repo.status.name() == 'FAILED'}" class="px-2 py-0.5 text-[9px] rounded-full bg-red-950/60 text-red-400 font-bold border border-red-900/60 font-sans">FAILED</span>
+                <button type="button"
+                        th:attr="hx-post=@{/repositories/build-all}, hx-swap='none'"
+                        class="h-7 px-2.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium text-[12px] flex items-center gap-1 transition">
+                    <span class="material-symbols-outlined text-[14px]">bolt</span>
+                    <span class="whitespace-nowrap">Build All Outdated</span>
+                </button>
+            </div>
+
+            <div class="p-2 bg-slate-50 space-y-1.5">
+                <div th:if="${repositories == null or repositories.empty}"
+                     class="text-center py-8 text-[12px] text-slate-500 italic font-mono">
+                    No repository targets configured.
+                </div>
+
+                <div th:each="repo : ${repositories}"
+                     class="bg-white rounded-lg p-2.5 flex flex-col gap-1.5 border border-slate-100 hover:border-slate-200 transition">
+
+                    <div class="flex items-center justify-between gap-2">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="w-1.5 h-1.5 rounded-full shrink-0"
+                                  th:classappend="${repo.status.name() == 'INDEXED'} ? 'bg-emerald-500' :
+                                                   (${repo.status.name() == 'STALE'} ? 'bg-amber-500' :
+                                                   (${repo.status.name() == 'NEEDS_REINDEX'} ? 'bg-purple-500' :
+                                                   (${repo.status.name() == 'FAILED'} ? 'bg-red-500' : 'bg-slate-400')))"></span>
+                            <span class="font-mono text-[12px] font-medium text-slate-900 truncate" th:text="${repo.id}">repo</span>
                         </div>
-                        <p class="text-xs text-slate-400 font-mono" th:text="${repo.path}">/Users/you/dev/payment-service</p>
-                    </div>
-                    
-                    <!-- Clean Button: Completely isolates HTMX processing from template layout locks -->
-                    <div>
-                       <!-- Completely replace your loop's button element with this explicit format -->
-<button type="button" th:attr="hx-post=@{/repositories/build/{id}(id=${repo.id})}, hx-swap='none'" data-busy-label="Indexing..."
-        class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-3 py-2 rounded border border-slate-700 transition font-medium cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed">
-    Index Repository
-</button>
 
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0"
+                              th:classappend="${repo.status.name() == 'INDEXED'} ? 'bg-emerald-50 text-emerald-800' :
+                                               (${repo.status.name() == 'STALE'} ? 'bg-amber-50 text-amber-800' :
+                                               (${repo.status.name() == 'NEEDS_REINDEX'} ? 'bg-purple-50 text-purple-800' :
+                                               (${repo.status.name() == 'FAILED'} ? 'bg-red-50 text-red-800' : 'bg-slate-100 text-slate-700')))"
+                              th:text="${repo.status.name()}">STATUS</span>
+                    </div>
+
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="font-mono text-[11px] text-slate-500 truncate flex-1" th:text="${repo.path}">/path</span>
+                        <button type="button"
+                                th:attr="hx-post=@{/repositories/build/{id}(id=${repo.id})}, hx-swap='none'"
+                                class="h-6 px-2 rounded-md font-medium text-[11px] shrink-0 transition"
+                                th:classappend="${repo.status.name() == 'INDEXED'} ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-blue-600 text-white hover:bg-blue-700'"
+                                th:text="${repo.status.name() == 'INDEXED'} ? 'Re-index' : 'Index Repository'">
+                            Index
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Right Column Space: Token Optimization Panel Matrix Display Card -->
-    <div class="col-span-1 space-y-6">
-        <div class="rounded-lg border border-slate-800 bg-[#0f1524] p-5 space-y-4 shadow-xl">
-            <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider">⚡ Token Optimization</h4>
-            <div class="space-y-3 font-mono">
-                <div class="bg-[#131b2e]/40 border border-slate-800 p-3 rounded">
-                    <p class="text-xs font-medium text-slate-300">Caveman Slicer</p>
-                    <div class="flex justify-between items-baseline mt-1">
-                        <span class="text-xl font-bold text-emerald-400">65%</span>
-                        <span class="text-[10px] text-slate-500">-12.4k tkns</span>
-                    </div>
+    <!-- Right column: token stats -->
+    <div class="col-span-1 space-y-5">
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
+            <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-blue-600 text-[18px]">memory</span>
+                <h3 class="text-[14px] font-semibold text-slate-900">Token Optimization</h3>
+            </div>
+
+            <div class="rounded-lg bg-slate-50 p-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-[12px] font-medium text-slate-700">Caveman Slicer</span>
+                    <span class="font-mono text-[14px] font-semibold text-emerald-600">65%</span>
                 </div>
-                <div class="bg-[#131b2e]/40 border border-slate-800 p-3 rounded">
-                    <p class="text-xs font-medium text-slate-300">Ponytail Minimizer</p>
-                    <div class="flex justify-between items-baseline mt-1">
-                        <span class="text-xl font-bold text-amber-400">54%</span>
-                        <span class="text-[10px] text-slate-500">-8.1k tkns</span>
-                    </div>
+                <div class="mt-2 h-1 bg-slate-200 rounded-full overflow-hidden">
+                    <div class="h-full bg-emerald-500 rounded-full" style="width: 65%;"></div>
                 </div>
+                <p class="text-[10px] text-slate-500 mt-1 font-mono">-12.4k tokens</p>
+            </div>
+
+            <div class="rounded-lg bg-slate-50 p-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-[12px] font-medium text-slate-700">Ponytail Minimizer</span>
+                    <span class="font-mono text-[14px] font-semibold text-amber-600">54%</span>
+                </div>
+                <div class="mt-2 h-1 bg-slate-200 rounded-full overflow-hidden">
+                    <div class="h-full bg-amber-500 rounded-full" style="width: 54%;"></div>
+                </div>
+                <p class="text-[10px] text-slate-500 mt-1 font-mono">-8.1k tokens</p>
             </div>
         </div>
     </div>
-
 </div>
-
-<script>
-    document.addEventListener('DOMContentLoaded', () => {
-        const markBusy = (button, label) => {
-            if (!button || !button.dataset || button.dataset.busyLocked === 'true') return;
-            button.dataset.originalText = button.innerText.trim();
-            button.dataset.busyLocked = 'true';
-            button.disabled = true;
-            button.setAttribute('aria-busy', 'true');
-            button.innerText = label;
-        };
-
-        const clearBusy = (button) => {
-            if (!button || !button.dataset) return;
-            button.disabled = false;
-            button.removeAttribute('aria-busy');
-            const originalText = button.dataset.originalText || 'Index Repository';
-            button.innerText = originalText;
-            delete button.dataset.busyLocked;
-        };
-
-        document.querySelectorAll('button[data-busy-label]').forEach((button) => {
-            button.addEventListener('click', () => markBusy(button, button.dataset.busyLabel));
-        });
-
-        document.getElementById('repo-form')?.addEventListener('submit', (event) => {
-            const submitButton = event.target.querySelector('button[type="submit"]');
-            if (submitButton) {
-                markBusy(submitButton, submitButton.dataset.busyLabel || 'Saving...');
-            }
-        });
-
-        document.body.addEventListener('htmx:afterRequest', (event) => {
-            const target = event.target.closest('button');
-            if (target && target.dataset.busyLabel) {
-                clearBusy(target);
-            }
-        });
-    });
-</script>
-
 </body>
 </html>

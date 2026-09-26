@@ -1,15 +1,14 @@
-provider: CLAUDE_API
-githubToken: ''
-anthropicApiKey: REDACTED
+provider: GITHUB_COPILOT
+githubToken: REDACTED
 workspaceDir: /tmp/workspace
-model: claude-sonnet-4-5
+model: gpt-4o
 requestBudget: 5
 repositories:
 - id: backend
   path: D:\Deepak\Learning\Agentic AI\Relay\backend
   sourceType: LOCAL_PATH
   status: INDEXED
-  lastIndexed: '2026-09-22T23:18:09.929627'
+  lastIndexed: '2026-09-26T02:31:55.2461257'
 agents:
   enabled: true
   searchPaths:

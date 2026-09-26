@@ -1,17 +1,11 @@
 package com.relay.orchestrator.pipeline;
 
+import com.relay.orchestrator.pipeline.impl.ImplementationResult;
 import com.relay.orchestrator.service.ClarificationResult;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
-/**
- * The complete state of one pipeline run.
- *
- * This is deliberately a flat record — everything needed to resume
- * is in here or in the session store. LangGraph4j migration will lift
- * this shape directly into a graph state.
- */
 public record PipelineSession(
         String id,
         String originalStory,
@@ -20,6 +14,7 @@ public record PipelineSession(
         int maxTurns,
         List<AnsweredQuestion> qaHistory,
         ClarificationResult lastResult,
+        ImplementationResult implementationResult,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {
 
@@ -28,33 +23,45 @@ public record PipelineSession(
         return new PipelineSession(
                 id, story, PipelineStage.NEW,
                 0, maxTurns,
-                List.of(), null,
+                List.of(), null, null,
                 now, now);
     }
 
-    /** Returns a copy with the given stage and optional result update. */
     public PipelineSession with(PipelineStage newStage, ClarificationResult newResult) {
         return new PipelineSession(
                 id, originalStory, newStage,
                 turnCount, maxTurns,
                 qaHistory, newResult != null ? newResult : lastResult,
+                implementationResult,
                 createdAt, LocalDateTime.now());
     }
 
-    /** Returns a copy with turnCount incremented. Nothing else changes. */
     public PipelineSession incrementTurn() {
         return new PipelineSession(
                 id, originalStory, stage,
                 turnCount + 1, maxTurns,
-                qaHistory, lastResult,
+                qaHistory, lastResult, implementationResult,
                 createdAt, LocalDateTime.now());
     }
 
-    public PipelineSession withTurn(List<AnsweredQuestion> newHistory, ClarificationResult newResult) {
+    public PipelineSession withTurn(List<AnsweredQuestion> newHistory,
+            ClarificationResult newResult) {
         return new PipelineSession(
                 id, originalStory, stage,
                 turnCount + 1, maxTurns,
-                newHistory, newResult,
+                newHistory, newResult, implementationResult,
+                createdAt, LocalDateTime.now());
+    }
+
+    /** Attach an implementer result and move to the ready stage. */
+    public PipelineSession withImplementation(ImplementationResult result) {
+        PipelineStage next = result == null || result.isEmpty()
+                ? PipelineStage.IMPLEMENTATION_FAILED
+                : PipelineStage.IMPLEMENTATION_READY;
+        return new PipelineSession(
+                id, originalStory, next,
+                turnCount, maxTurns,
+                qaHistory, lastResult, result,
                 createdAt, LocalDateTime.now());
     }
 

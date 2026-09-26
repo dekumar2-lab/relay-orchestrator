@@ -1,13 +1,12 @@
 package com.relay.orchestrator.connection;
 
 /**
- * Local single-user settings persisted in ~/.relay-orchestrator/config.yml.
+ * Local single-user settings persisted in config.yml.
  */
 public class ConnectionConfig {
 
     public enum Provider {
-        GITHUB_COPILOT("GitHub Copilot"),
-        CLAUDE_API("Claude API (direct)");
+        GITHUB_COPILOT("GitHub Copilot");
 
         private final String label;
 
@@ -22,8 +21,7 @@ public class ConnectionConfig {
 
     private Provider provider = Provider.GITHUB_COPILOT;
     private String githubToken = "";
-    private String anthropicApiKey = "";
-    private String model = "claude-sonnet-4-5";
+    private String model = "gpt-4o";
     private String workspaceDir = "";
     private int requestBudget = 20;
 
@@ -43,20 +41,12 @@ public class ConnectionConfig {
         this.githubToken = githubToken == null ? "" : githubToken;
     }
 
-    public String getAnthropicApiKey() {
-        return anthropicApiKey;
-    }
-
-    public void setAnthropicApiKey(String anthropicApiKey) {
-        this.anthropicApiKey = anthropicApiKey == null ? "" : anthropicApiKey;
-    }
-
     public String getModel() {
         return model;
     }
 
     public void setModel(String model) {
-        this.model = model == null || model.isBlank() ? "claude-sonnet-4-5" : model;
+        this.model = model == null || model.isBlank() ? "gpt-4o" : model;
     }
 
     public String getWorkspaceDir() {

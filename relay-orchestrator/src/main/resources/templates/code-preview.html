@@ -1,11 +1,201 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <body>
-<div th:fragment="content" class="p-6">
-    <div class="rounded-lg border border-slate-800 bg-panel p-8 text-center">
-        <h1 class="text-xl font-semibold text-white">Code Preview</h1>
-        <p class="mt-4 text-slate-400">No code changes generated yet.</p>
+<div th:fragment="content" class="space-y-5" x-data="diffViewer()" x-init="init()">
+
+    <!-- Header Card: Session Loader -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+        <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-blue-600 text-[18px]">terminal</span>
+                <h2 class="text-[14px] font-semibold text-slate-900">Proposed Changes</h2>
+            </div>
+            <span class="font-mono text-[11px] text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">git-ref / HEAD</span>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <div class="relative flex-1">
+                <span class="absolute inset-y-0 left-2.5 flex items-center pointer-events-none text-slate-400">
+                    <span class="material-symbols-outlined text-[16px]">fingerprint</span>
+                </span>
+                <input type="text" x-model="sessionId" placeholder="sess_..."
+                       class="w-full h-8 pl-8 pr-3 rounded-md bg-slate-50 font-mono text-[12px] text-slate-800 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-100 border border-transparent focus:border-blue-400 transition">
+            </div>
+            <button type="button" @click="load()"
+                    class="h-8 px-3 rounded-md bg-blue-600 text-white hover:bg-blue-700 font-medium text-[13px] flex items-center gap-1.5 shadow-sm transition">
+                <span class="material-symbols-outlined text-[16px]">sync</span>
+                Load
+            </button>
+        </div>
     </div>
+
+    <!-- Error -->
+    <div x-show="error" x-text="error"
+         class="rounded-md bg-red-50 border border-red-200 p-3 text-[12px] text-red-700 font-mono"></div>
+
+    <!-- Empty -->
+    <div x-show="loaded && files.length === 0 && !error"
+         class="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center text-[13px] text-slate-500">
+        No proposed changes for this session yet.
+    </div>
+
+    <!-- Diff Content -->
+    <template x-if="loaded && files.length > 0">
+        <div class="space-y-4">
+
+            <!-- Summary strip -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-slate-500 text-[18px]">difference</span>
+                    <span class="text-[14px] font-semibold text-slate-900">
+                        <span x-text="files.length"></span> file(s) changed
+                    </span>
+                </div>
+                <div class="flex items-center gap-2 font-mono text-[11px]">
+                    <span class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium" x-text="'+' + totalAdd + ' lines'"></span>
+                    <span class="px-2 py-0.5 rounded-full bg-red-50 text-red-700 font-medium" x-text="'-' + totalDel + ' lines'"></span>
+                </div>
+            </div>
+
+            <!-- Files -->
+            <template x-for="file in files" :key="file.path">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+
+                    <!-- File header -->
+                    <div class="bg-slate-50 px-4 py-2 flex items-center justify-between gap-3 border-b border-slate-200">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="font-mono text-[11px] px-2 py-0.5 rounded-full font-medium shrink-0"
+                                  :class="kindBadge(file.changeKind)"
+                                  x-text="file.changeKind"></span>
+                            <span class="font-mono text-[11px] text-slate-800 truncate"
+                                  :class="file.changeKind === 'DELETE' ? 'line-through text-slate-500' : ''"
+                                  :title="file.path"
+                                  x-text="file.path"></span>
+                        </div>
+                        <span class="font-mono text-[11px] text-slate-500 shrink-0 font-medium">
+                            <span class="text-emerald-600" x-text="'+' + file.additions"></span>
+                            /
+                            <span class="text-red-600" x-text="'-' + file.deletions"></span>
+                        </span>
+                    </div>
+
+                    <!-- Unified diff -->
+                    <div class="overflow-x-auto bg-white py-1">
+                        <div class="font-mono text-[12px] leading-5 whitespace-pre" x-html="renderDiff(file.unifiedDiff)"></div>
+                    </div>
+                </div>
+            </template>
+
+            <!-- Action bar -->
+            <div class="sticky bottom-0 z-10 pt-2 bg-gradient-to-t from-slate-50 via-slate-50/95 to-transparent">
+                <div x-show="actionToast" x-text="actionToast"
+                     class="mb-2 px-3 py-2 rounded-lg text-center font-medium text-[13px]"
+                     :class="toastClass"></div>
+
+                <button type="button" @click="approve()"
+                        class="w-full h-11 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium text-[13px] flex items-center justify-center gap-2 shadow-md transition">
+                    <span class="material-symbols-outlined text-[18px]">merge</span>
+                    Apply Changes to Disk
+                </button>
+                <button type="button" @click="reject()"
+                        class="w-full h-10 mt-2 rounded-lg bg-slate-100 text-slate-800 hover:bg-slate-200 font-medium text-[13px] flex items-center justify-center gap-2 transition">
+                    <span class="material-symbols-outlined text-[16px] text-red-600">assignment_return</span>
+                    Reject &amp; Re-clarify
+                </button>
+            </div>
+        </div>
+    </template>
+
+    <script>
+        function diffViewer() {
+            return {
+                sessionId: '',
+                files: [],
+                totalAdd: 0,
+                totalDel: 0,
+                loaded: false,
+                error: '',
+                actionToast: '',
+                toastClass: 'bg-slate-100 text-slate-800',
+
+                init() {
+                    const params = new URLSearchParams(window.location.search);
+                    const urlId = params.get('session');
+                    this.sessionId = urlId || localStorage.getItem('relay.lastSessionId') || '';
+                    if (this.sessionId) this.load();
+                },
+
+                async load() {
+                    this.error = '';
+                    this.files = [];
+                    this.loaded = false;
+                    if (!this.sessionId.trim()) {
+                        this.error = 'Enter a session id.';
+                        return;
+                    }
+                    try {
+                        const res = await fetch('/pipeline/session/' + this.sessionId.trim() + '/diff');
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.error || 'Load failed');
+                        this.files = data.files || [];
+                        this.totalAdd = data.totalAdditions || 0;
+                        this.totalDel = data.totalDeletions || 0;
+                        this.loaded = true;
+                    } catch (e) {
+                        this.error = e.message;
+                    }
+                },
+
+                renderDiff(text) {
+                    if (!text) return '';
+                    return text.split('\n').map((line) => {
+                        let cls = 'px-4 py-0.5 text-slate-500';
+                        if (line.startsWith('+++') || line.startsWith('---')) {
+                            cls = 'px-4 py-0.5 text-slate-500 font-semibold';
+                        } else if (line.startsWith('@@')) {
+                            cls = 'px-4 py-0.5 bg-blue-50 text-blue-700 font-medium';
+                        } else if (line.startsWith('+')) {
+                            cls = 'px-4 py-0.5 bg-emerald-50 text-emerald-800';
+                        } else if (line.startsWith('-')) {
+                            cls = 'px-4 py-0.5 bg-red-50 text-red-800';
+                        }
+                        const safe = line
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;');
+                        return '<div class="' + cls + '">' + (safe || ' ') + '</div>';
+                    }).join('');
+                },
+
+                kindBadge(kind) {
+                    switch (kind) {
+                        case 'CREATE': return 'bg-emerald-50 text-emerald-700';
+                        case 'DELETE': return 'bg-red-50 text-red-700';
+                        default:       return 'bg-amber-50 text-amber-700';
+                    }
+                },
+
+                showToast(msg, ok) {
+                    this.actionToast = msg;
+                    this.toastClass = ok ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-800';
+                    setTimeout(() => { this.actionToast = ''; }, 3200);
+                },
+
+                approve() {
+                    // Phase 2c endpoint not built yet — placeholder
+                    this.showToast('Apply-to-disk lands in Phase 2c. Nothing was written.', false);
+                },
+
+                reject() {
+                    this.showToast('Changes rejected. Feedback channel reopened.', false);
+                }
+            };
+        }
+    </script>
+
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
 </div>
 </body>
 </html>

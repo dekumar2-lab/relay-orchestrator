@@ -64,7 +64,6 @@ public class LlmClientRouter {
 
     private LlmClient.ProviderId providerIdOf(ConnectionConfig config) {
         return switch (config.getProvider()) {
-            case CLAUDE_API -> LlmClient.ProviderId.ANTHROPIC;
             case GITHUB_COPILOT -> LlmClient.ProviderId.COPILOT;
         };
     }

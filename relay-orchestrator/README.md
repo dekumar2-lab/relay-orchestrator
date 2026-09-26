@@ -320,7 +320,7 @@ provider: CLAUDE_API
 githubToken: ""
 anthropicApiKey: sk-ant-...
 workspaceDir: /tmp/workspace
-model: claude-sonnet-4-5
+model: gpt-4o
 requestBudget: 5
 
 repositories:

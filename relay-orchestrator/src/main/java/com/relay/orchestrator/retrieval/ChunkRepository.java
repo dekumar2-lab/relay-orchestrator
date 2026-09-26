@@ -6,20 +6,24 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * SQLite persistence for code chunks and their embeddings.
+ * SQLite persistence for code chunks.
  *
- * Embeddings are stored as raw float32 BLOBs (1536 bytes each for 384-dim
- * vectors). Little-endian for consistency across platforms.
+ * NOTE (Copilot-only migration):
+ * Embeddings were removed. The previous version stored a float32 BLOB per
+ * chunk and exposed a ChunkWithVector record. That machinery was tied to
+ * the local MiniLM model, which is no longer part of the project.
  *
- * Same relay.db as the rest of the framework. One table, one index.
+ * Retrieval will be re-implemented on top of Lucene BM25 in the next
+ * session. This class stores only the text content and metadata.
+ *
+ * Because the schema changed, delete index.db on first start after this
+ * change.
  */
 @Repository
 public class ChunkRepository {
@@ -42,30 +46,26 @@ public class ChunkRepository {
                   qualified_name TEXT NOT NULL,
                   file_path TEXT,
                   content TEXT NOT NULL,
-                  embedding BLOB NOT NULL,
                   created_at TEXT NOT NULL
                 )
                 """);
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_chunks_repo ON code_chunks(repo_id)");
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_chunks_type ON code_chunks(chunk_type)");
-        log.info("code_chunks table ready");
+        log.info("code_chunks table ready (no-embedding schema)");
     }
 
-    /** Store a chunk with its embedding vector. */
-    public void insert(CodeChunk chunk, float[] embedding) {
-        byte[] blob = encodeVector(embedding);
+    /** Store a chunk. Called by RepoIndexerService.storeChunks(). */
+    public void insert(CodeChunk chunk) {
         jdbc.update("""
                 INSERT INTO code_chunks
-                  (repo_id, chunk_type, qualified_name, file_path,
-                   content, embedding, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                  (repo_id, chunk_type, qualified_name, file_path, content, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 chunk.repoId(),
                 chunk.chunkType(),
                 chunk.qualifiedName(),
                 chunk.filePath(),
                 chunk.content(),
-                blob,
                 LocalDateTime.now().toString());
     }
 
@@ -98,67 +98,27 @@ public class ChunkRepository {
         return n == null ? 0 : n;
     }
 
-    /**
-     * Load every chunk for a repo, with embeddings decoded.
-     * Used by RetrievalService (Phase 1.3c) to run cosine similarity.
-     */
-    public List<ChunkWithVector> findAllForRepo(String repoId) {
-        return jdbc.query(
-                "SELECT * FROM code_chunks WHERE repo_id = ? ORDER BY id",
-                new ChunkWithVectorRowMapper(), repoId);
-    }
-
-    public List<ChunkWithVector> findAll() {
+    public List<CodeChunk> findAll() {
         return jdbc.query(
                 "SELECT * FROM code_chunks ORDER BY id",
-                new ChunkWithVectorRowMapper());
+                new ChunkRowMapper());
     }
 
-    // ----------------------------------------------------------------
-    // Vector encoding
-    // ----------------------------------------------------------------
-
-    private static byte[] encodeVector(float[] v) {
-        ByteBuffer buf = ByteBuffer.allocate(v.length * 4).order(ByteOrder.LITTLE_ENDIAN);
-        for (float f : v)
-            buf.putFloat(f);
-        return buf.array();
+    public List<CodeChunk> findAllForRepo(String repoId) {
+        return jdbc.query(
+                "SELECT * FROM code_chunks WHERE repo_id = ? ORDER BY id",
+                new ChunkRowMapper(), repoId);
     }
 
-    private static float[] decodeVector(byte[] bytes) {
-        if (bytes == null || bytes.length == 0)
-            return new float[0];
-        ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
-        float[] out = new float[bytes.length / 4];
-        for (int i = 0; i < out.length; i++)
-            out[i] = buf.getFloat();
-        return out;
-    }
-
-    // ----------------------------------------------------------------
-    // Row mapper + return type
-    // ----------------------------------------------------------------
-
-    /** A chunk plus its decoded vector, ready for similarity math. */
-    public record ChunkWithVector(
-            long id,
-            CodeChunk chunk,
-            float[] vector) {
-    }
-
-    private static class ChunkWithVectorRowMapper implements RowMapper<ChunkWithVector> {
+    private static class ChunkRowMapper implements RowMapper<CodeChunk> {
         @Override
-        public ChunkWithVector mapRow(ResultSet rs, int rowNum) throws SQLException {
-            CodeChunk chunk = new CodeChunk(
+        public CodeChunk mapRow(ResultSet rs, int rowNum) throws SQLException {
+            return new CodeChunk(
                     rs.getString("repo_id"),
                     rs.getString("chunk_type"),
                     rs.getString("qualified_name"),
                     rs.getString("file_path"),
                     rs.getString("content"));
-            return new ChunkWithVector(
-                    rs.getLong("id"),
-                    chunk,
-                    decodeVector(rs.getBytes("embedding")));
         }
     }
 }

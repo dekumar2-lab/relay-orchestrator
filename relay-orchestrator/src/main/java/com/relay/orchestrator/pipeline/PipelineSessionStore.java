@@ -2,8 +2,8 @@ package com.relay.orchestrator.pipeline;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.relay.orchestrator.pipeline.impl.ImplementationResult;
 import com.relay.orchestrator.service.ClarificationResult;
-import com.relay.orchestrator.service.ClarifyingQuestion;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,7 +30,9 @@ public class PipelineSessionStore {
     private static final Logger log = LoggerFactory.getLogger(PipelineSessionStore.class);
 
     private final JdbcTemplate jdbc;
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = new ObjectMapper()
+            .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule())
+            .disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     public PipelineSessionStore(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -47,6 +49,7 @@ public class PipelineSessionStore {
                   max_turns INTEGER NOT NULL DEFAULT 3,
                   qa_history_json TEXT,
                   last_result_json TEXT,
+                  implementation_json TEXT,
                   created_at TEXT NOT NULL,
                   updated_at TEXT NOT NULL
                 )
@@ -61,18 +64,22 @@ public class PipelineSessionStore {
             String resultJson = session.lastResult() != null
                     ? mapper.writeValueAsString(session.lastResult())
                     : null;
+            String implJson = session.implementationResult() != null
+                    ? mapper.writeValueAsString(session.implementationResult())
+                    : null;
 
-            // SQLite UPSERT
             jdbc.update("""
                     INSERT INTO pipeline_sessions
                       (id, original_story, stage, turn_count, max_turns,
-                       qa_history_json, last_result_json, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       qa_history_json, last_result_json, implementation_json,
+                       created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                       stage = excluded.stage,
                       turn_count = excluded.turn_count,
                       qa_history_json = excluded.qa_history_json,
                       last_result_json = excluded.last_result_json,
+                      implementation_json = excluded.implementation_json,
                       updated_at = excluded.updated_at
                     """,
                     session.id(),
@@ -82,6 +89,7 @@ public class PipelineSessionStore {
                     session.maxTurns(),
                     qaJson,
                     resultJson,
+                    implJson,
                     session.createdAt().toString(),
                     session.updatedAt().toString());
         } catch (Exception e) {
@@ -111,6 +119,7 @@ public class PipelineSessionStore {
             try {
                 List<AnsweredQuestion> qa = readQa(rs.getString("qa_history_json"));
                 ClarificationResult result = readResult(rs.getString("last_result_json"));
+                ImplementationResult impl = readImpl(rs.getString("implementation_json"));
 
                 return new PipelineSession(
                         rs.getString("id"),
@@ -120,6 +129,7 @@ public class PipelineSessionStore {
                         rs.getInt("max_turns"),
                         qa,
                         result,
+                        impl,
                         LocalDateTime.parse(rs.getString("created_at")),
                         LocalDateTime.parse(rs.getString("updated_at")));
             } catch (Exception e) {
@@ -128,10 +138,23 @@ public class PipelineSessionStore {
         }
     }
 
-    private List<AnsweredQuestion> readQa(String json) {
-        if (json == null || json.isBlank()) return new ArrayList<>();
+    private ImplementationResult readImpl(String json) {
+        if (json == null || json.isBlank())
+            return null;
         try {
-            return mapper.readValue(json, new TypeReference<List<AnsweredQuestion>>() {});
+            return mapper.readValue(json, ImplementationResult.class);
+        } catch (Exception e) {
+            log.warn("Failed to parse implementation_json", e);
+            return null;
+        }
+    }
+
+    private List<AnsweredQuestion> readQa(String json) {
+        if (json == null || json.isBlank())
+            return new ArrayList<>();
+        try {
+            return mapper.readValue(json, new TypeReference<List<AnsweredQuestion>>() {
+            });
         } catch (Exception e) {
             log.warn("Failed to parse qa_history_json, returning empty", e);
             return new ArrayList<>();
@@ -139,7 +162,8 @@ public class PipelineSessionStore {
     }
 
     private ClarificationResult readResult(String json) {
-        if (json == null || json.isBlank()) return null;
+        if (json == null || json.isBlank())
+            return null;
         try {
             return mapper.readValue(json, ClarificationResult.class);
         } catch (Exception e) {

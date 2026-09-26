@@ -16,17 +16,16 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
  * The clarification loop orchestrator.
  *
  * Handles:
- *   - Session creation from a fresh story
- *   - Turn-by-turn resumption with user answers
- *   - Hard cap enforcement (max 3 turns)
- *   - Stage transitions
+ * - Session creation from a fresh story
+ * - Turn-by-turn resumption with user answers
+ * - Hard cap enforcement (max 3 turns)
+ * - Stage transitions
  *
  * Structure is LangGraph4j-compatible: each method here becomes a node
  * in the eventual graph, and PipelineSession becomes the graph state.
@@ -79,7 +78,7 @@ public class ClarificationLoopService {
     // ----------------------------------------------------------------
 
     public PipelineSession resume(String sessionId, List<AnsweredQuestion> newAnswers,
-                                   String additionalContext) {
+            String additionalContext) {
         PipelineSession session = sessionStore.find(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("Session not found: " + sessionId));
 
@@ -93,7 +92,6 @@ public class ClarificationLoopService {
         List<AnsweredQuestion> mergedHistory = new ArrayList<>(session.qaHistory());
         if (newAnswers != null) {
             for (AnsweredQuestion a : newAnswers) {
-                // Find the original question text to preserve it
                 String questionText = findOriginalQuestion(session, a.questionId());
                 mergedHistory.add(new AnsweredQuestion(
                         a.questionId(), questionText, a.why(), a.answer()));
@@ -109,12 +107,19 @@ public class ClarificationLoopService {
                 "[LOOP] Resuming session " + shortId(sessionId)
                         + " (turn " + (session.turnCount() + 1) + "/" + session.maxTurns() + ")"));
 
-        // Attach merged history, but let runClarifierTurn handle the turn increment.
+        // Reconstruct with merged history. The record now has 10 components
+        // (implementationResult sits between lastResult and createdAt).
         PipelineSession withHistory = new PipelineSession(
-                session.id(), session.originalStory(), session.stage(),
-                session.turnCount(), session.maxTurns(),
-                mergedHistory, session.lastResult(),
-                session.createdAt(), java.time.LocalDateTime.now());
+                session.id(),
+                session.originalStory(),
+                session.stage(),
+                session.turnCount(),
+                session.maxTurns(),
+                mergedHistory,
+                session.lastResult(),
+                session.implementationResult(),
+                session.createdAt(),
+                java.time.LocalDateTime.now());
 
         return runClarifierTurn(withHistory, mergedHistory);
     }
@@ -124,12 +129,10 @@ public class ClarificationLoopService {
     // ----------------------------------------------------------------
 
     private PipelineSession runClarifierTurn(PipelineSession session,
-                                              List<AnsweredQuestion> history) {
+            List<AnsweredQuestion> history) {
 
-        // Increment the counter — this IS a turn.
         PipelineSession incremented = session.incrementTurn();
 
-        // Hard safety cap (should never trigger if lastChance logic is right).
         if (incremented.turnCount() > incremented.maxTurns()) {
             logBroadcaster.publish(LogEvent.warn(
                     "[LOOP] Session " + shortId(session.id()) + " exceeded turn cap"));
@@ -200,5 +203,17 @@ public class ClarificationLoopService {
 
     public List<PipelineSession> recent(int limit) {
         return sessionStore.recent(limit);
+    }
+
+    // ----------------------------------------------------------------
+    // Write access — used by the implementer to persist its result
+    // ----------------------------------------------------------------
+
+    /**
+     * Persist a session directly. Called by ConnectionController after the
+     * implementer finishes, so the diff is available on the next page load.
+     */
+    public void save(PipelineSession session) {
+        sessionStore.save(session);
     }
 }

@@ -12,6 +12,8 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
         rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+    <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3.x.x/dist/cdn.min.js"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="stylesheet" th:href="@{/css/app.css}" />
     <script>
@@ -23,39 +25,48 @@
                         mono: ['JetBrains Mono', 'monospace']
                     },
                     colors: {
-                        base: '#0a0e1a',
-                        panel: '#0f1524',
-                        panelAlt: '#131b2e'
+                        base: '#f8fafc',
+                        panel: '#ffffff',
+                        panelAlt: '#f1f5f9'
                     }
                 }
             }
         }
     </script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20; }
+    </style>
 </head>
 
-<body class="min-h-screen bg-[#0a0e1a] font-sans text-slate-200">
+<body class="min-h-screen bg-slate-50 font-sans text-slate-800">
     <div class="flex min-h-screen flex-col">
-        <header class="border-b border-slate-800 bg-[#0f1524]/95 backdrop-blur-sm">
+
+        <!-- ============================================================
+             HEADER
+             ============================================================ -->
+        <header class="border-b border-slate-200 bg-white/95 backdrop-blur-sm">
             <div class="flex items-center justify-between gap-4 px-6 py-4">
                 <div class="flex items-center gap-3">
-                    <div class="h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_16px_rgba(52,211,153,0.9)]"></div>
-                    <div class="text-lg font-semibold text-white">Relay Orchestrator</div>
+                    <div class="h-2.5 w-2.5 rounded-full bg-emerald-500"></div>
+                    <div class="text-base font-semibold text-slate-900">Relay Orchestrator</div>
                     <span
-                        class="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-emerald-300">Status:
-                        Healthy</span>
+                        class="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-emerald-700">
+                        Healthy
+                    </span>
                     <span
-                        class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-slate-300"
-                        th:text="${config != null && config.model != null ? config.model : 'claude-sonnet-4.5'}">claude-sonnet-4.5</span>
+                        class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-slate-600"
+                        th:text="${config != null && config.model != null ? config.model : 'gpt-4o'}">gpt-4o</span>
                 </div>
 
                 <div class="flex items-center gap-3">
                     <div
-                        class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-300">
-                        Token Budget: <span class="text-cyan-300"
-                            th:text="${config != null && config.requestBudget != null ? config.requestBudget : 1580}">1,580</span>
+                        class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700">
+                        Budget: <span class="font-semibold text-blue-700"
+                            th:text="${config != null && config.requestBudget != null ? config.requestBudget : 5}">5</span>
                     </div>
                     <button type="button"
-                        class="rounded-md bg-cyan-500 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-400">
+                        class="rounded-md bg-blue-600 px-3.5 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white shadow-sm transition hover:bg-blue-700">
                         Run Orchestration
                     </button>
                 </div>
@@ -63,81 +74,144 @@
         </header>
 
         <div class="flex flex-1 overflow-hidden">
-            <aside class="w-64 border-r border-slate-800 bg-[#0d1422]">
+
+            <!-- ============================================================
+                 LEFT SIDEBAR: nav + vertical pipeline stepper
+                 ============================================================ -->
+            <aside class="w-64 border-r border-slate-200 bg-white flex flex-col overflow-y-auto">
+
                 <div class="p-4">
-                    <p class="text-[10px] font-medium uppercase tracking-[0.3em] text-slate-500">Mission Control</p>
-                    <nav class="mt-4 space-y-1">
+                    <p class="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-400">Mission Control</p>
+                    <nav class="mt-3 space-y-0.5">
+
                         <a th:href="@{/}"
-                            th:classappend="${activeTab == 'pipeline'} ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'"
-                            class="flex items-center rounded-md px-3 py-2 text-sm font-medium transition">Pipeline
-                            Stages</a>
+                            th:classappend="${activeTab == 'pipeline'} ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
+                            class="group flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition">
+                            <span class="h-1.5 w-1.5 rounded-full bg-blue-500 group-hover:scale-125 transition"></span>
+                            Pipeline Stages
+                        </a>
+
                         <a th:href="@{/repositories}"
-                            th:classappend="${activeTab == 'repositories'} ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'"
-                            class="flex items-center rounded-md px-3 py-2 text-sm font-medium transition">Repo
-                            Configurations</a>
+                            th:classappend="${activeTab == 'repositories'} ? 'bg-violet-50 text-violet-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
+                            class="group flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition">
+                            <span
+                                class="h-1.5 w-1.5 rounded-full bg-violet-500 group-hover:scale-125 transition"></span>
+                            Repo Configurations
+                        </a>
+
                         <a th:href="@{/topology}"
-                            th:classappend="${activeTab == 'topology'} ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'"
-                            class="flex items-center rounded-md px-3 py-2 text-sm font-medium transition">Workspace
-                            Topology</a>
+                            th:classappend="${activeTab == 'topology'} ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
+                            class="group flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition">
+                            <span class="h-1.5 w-1.5 rounded-full bg-teal-500 group-hover:scale-125 transition"></span>
+                            Workspace Topology
+                        </a>
+
                         <a th:href="@{/token-tracker}"
-                            th:classappend="${activeTab == 'token-tracker'} ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'"
-                            class="flex items-center rounded-md px-3 py-2 text-sm font-medium transition">Token
-                            Tracker</a>
+                            th:classappend="${activeTab == 'token-tracker'} ? 'bg-amber-50 text-amber-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
+                            class="group flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition">
+                            <span class="h-1.5 w-1.5 rounded-full bg-amber-500 group-hover:scale-125 transition"></span>
+                            Token Tracker
+                        </a>
+
+                        <a th:href="@{/code-preview}"
+                            th:classappend="${activeTab == 'code-preview'} ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
+                            class="group flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition">
+                            <span
+                                class="h-1.5 w-1.5 rounded-full bg-emerald-500 group-hover:scale-125 transition"></span>
+                            Code Preview
+                        </a>
+
                         <a th:href="@{/logs}"
-                            th:classappend="${activeTab == 'logs'} ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'"
-                            class="flex items-center rounded-md px-3 py-2 text-sm font-medium transition">Terminal
-                            Logs</a>
+                            th:classappend="${activeTab == 'logs'} ? 'bg-slate-100 text-slate-900' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
+                            class="group flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition">
+                            <span class="h-1.5 w-1.5 rounded-full bg-slate-400 group-hover:scale-125 transition"></span>
+                            Terminal Logs
+                        </a>
                     </nav>
-                    <div class="mt-8 border-t border-slate-800 pt-4">
-                        <nav class="space-y-1">
-                            <a th:href="@{/settings}"
-                                th:classappend="${activeTab == 'settings'} ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'"
-                                class="flex items-center rounded-md px-3 py-2 text-sm font-medium transition">Settings</a>
-                            <a th:href="@{/support}"
-                                th:classappend="${activeTab == 'support'} ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'"
-                                class="flex items-center rounded-md px-3 py-2 text-sm font-medium transition">Support</a>
-                        </nav>
-                    </div>
+                </div>
+
+                <!-- Vertical pipeline stepper (clickable) -->
+                <div class="border-t border-slate-200 mt-2 p-4">
+                    <p class="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-400 mb-3">Pipeline</p>
+                    <ol class="space-y-0">
+                        <li th:each="stage, iter : ${pipelineStages}" class="relative">
+                            <a th:href="${stage.href}"
+                                class="relative flex items-start gap-3 pl-7 py-1.5 -mx-1 px-1 rounded-md hover:bg-slate-50 transition group cursor-pointer">
+
+                                <!-- Connector line -->
+                                <span th:if="${!iter.last}"
+                                    class="absolute left-[9px] top-6 h-[calc(100%-8px)] w-px bg-slate-200 group-hover:bg-slate-300"></span>
+
+                                <!-- Step dot -->
+                                <span
+                                    class="absolute left-0 top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 text-[10px] font-bold transition group-hover:scale-110"
+                                    th:classappend="${stage.state == 'done'} ? 'border-emerald-500 bg-emerald-50 text-emerald-600' : (${stage.state == 'active'} ? 'border-blue-600 bg-blue-50 text-blue-700 ring-4 ring-blue-100' : 'border-slate-300 bg-white text-slate-400')"
+                                    th:text="${stage.state == 'done' ? '✓' : (iter.index + 1)}">1</span>
+
+                                <!-- Label -->
+                                <div class="min-w-0">
+                                    <p class="text-xs font-semibold leading-tight"
+                                        th:classappend="${stage.state == 'active'} ? 'text-slate-900' : (${stage.state == 'done'} ? 'text-slate-700' : 'text-slate-500')"
+                                        th:text="${stage.name}">Analysis</p>
+                                    <p class="text-[10px] uppercase tracking-wider mt-0.5"
+                                        th:classappend="${stage.state == 'done'} ? 'text-emerald-600' : (${stage.state == 'active'} ? 'text-blue-600' : 'text-slate-400')"
+                                        th:text="${stage.state}">queued</p>
+                                </div>
+                            </a>
+                        </li>
+                    </ol>
+                </div>
+
+                <div class="border-t border-slate-200 mt-auto p-4">
+                    <nav class="space-y-0.5">
+                        <a th:href="@{/settings}"
+                            th:classappend="${activeTab == 'settings'} ? 'bg-slate-100 text-slate-900' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
+                            class="group flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition">
+                            <span class="h-1.5 w-1.5 rounded-full bg-slate-400 group-hover:scale-125 transition"></span>
+                            Settings
+                        </a>
+                        <a th:href="@{/support}"
+                            th:classappend="${activeTab == 'support'} ? 'bg-slate-100 text-slate-900' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
+                            class="group flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition">
+                            <span class="h-1.5 w-1.5 rounded-full bg-slate-400 group-hover:scale-125 transition"></span>
+                            Support
+                        </a>
+                    </nav>
                 </div>
             </aside>
 
-            <main class="flex flex-1 flex-col overflow-hidden bg-[#0a0e1a]">
-                <div class="border-b border-slate-800 bg-[#0f1524]/80">
-                    <div
-                        class="flex items-center gap-3 overflow-x-auto px-6 py-4 text-xs uppercase tracking-[0.22em] text-slate-400">
-                        <div th:each="stage, iter : ${pipelineStages}" class="flex items-center gap-3">
-                            <span
-                                th:classappend="${stage.state == 'done'} ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' : (${stage.state == 'active'} ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-300' : 'border-slate-700 bg-slate-900 text-slate-500')"
-                                class="rounded-full border px-2 py-1"
-                                th:text="${stage.name + ' (' + stage.state.toUpperCase() + ')'}">Stage</span>
-                            <span th:if="${!iter.last}" class="text-slate-500">→</span>
-                        </div>
-                    </div>
-                </div>
+            <!-- ============================================================
+                 MAIN: content + pinned log panel
+                 ============================================================ -->
+            <main class="flex-1 flex flex-col overflow-hidden bg-slate-50 min-w-0">
 
-                <div class="flex-1 overflow-auto p-6">
+                <div class="flex-1 overflow-auto p-6 min-h-0">
                     <div th:replace="~{${viewContent} :: content}"></div>
                 </div>
 
-                <div id="log-panel" class="border-t border-slate-800 bg-[#0b1220] flex flex-col"
-                    style="height: 260px; min-height: 120px; max-height: 70vh;">
+                <!-- Log panel pinned to bottom -->
+                <div id="log-panel" class="border-t border-slate-200 bg-white flex flex-col shrink-0"
+                    style="height: 240px; min-height: 100px; max-height: 70vh;">
                     <div id="log-resize-handle"
-                        class="h-1.5 cursor-ns-resize bg-slate-800 hover:bg-cyan-600 transition-colors"
+                        class="h-1 cursor-ns-resize bg-slate-200 hover:bg-blue-500 transition-colors"
                         title="Drag to resize"></div>
                     <div
-                        class="flex items-center justify-between px-4 py-2 text-[10px] uppercase tracking-[0.2em] text-slate-400 select-none">
+                        class="flex items-center justify-between px-4 py-1.5 text-[10px] uppercase tracking-[0.18em] text-slate-500 select-none border-b border-slate-100">
                         <span>Live Slicer Stream</span>
-                        <span>Bottom Monitor</span>
+                        <span id="log-status">Connected</span>
                     </div>
-                    <div hx-ext="sse" sse-connect="/logs/stream"
-                        class="flex-1 overflow-auto bg-[#0a0e1a] px-4 py-3 font-mono text-xs text-slate-300">
-                        <div id="log-content" sse-swap="logline" hx-swap="beforeend scroll:bottom"></div>
+                    <div id="log-scroll"
+                        class="flex-1 overflow-auto bg-white px-4 py-2 font-mono text-xs text-slate-700" hx-ext="sse"
+                        sse-connect="/logs/stream">
+                        <div id="log-content" sse-swap="logline" hx-swap="beforeend"></div>
                     </div>
                 </div>
             </main>
         </div>
     </div>
+
     <script>
+        // ---- Stage icon animation for any [data-stage-icon] elements (kept for compat) ----
         document.addEventListener('DOMContentLoaded', function () {
             document.querySelectorAll('[data-stage-icon]').forEach(node => {
                 const icons = ['◉', '◌', '◎'];
@@ -151,37 +225,70 @@
             });
         });
     </script>
+
     <script>
+        // ---- Log panel: resize + persist height + auto-scroll ----
         document.addEventListener('DOMContentLoaded', function () {
             const panel = document.getElementById('log-panel');
             const handle = document.getElementById('log-resize-handle');
-            if (!panel || !handle) return;
+            const logScroll = document.getElementById('log-scroll');
 
-            let startY = 0;
-            let startHeight = 0;
-            let dragging = false;
+            // Restore persisted height
+            if (panel) {
+                const saved = localStorage.getItem('relay.logPanelHeight');
+                if (saved) {
+                    panel.style.height = saved + 'px';
+                }
+            }
 
-            handle.addEventListener('mousedown', function (e) {
-                dragging = true;
-                startY = e.clientY;
-                startHeight = panel.offsetHeight;
-                document.body.style.userSelect = 'none';
-                e.preventDefault();
-            });
+            // Drag to resize
+            if (panel && handle) {
+                let startY = 0;
+                let startHeight = 0;
+                let dragging = false;
 
-            document.addEventListener('mousemove', function (e) {
-                if (!dragging) return;
-                const delta = startY - e.clientY;
-                let newHeight = startHeight + delta;
-                newHeight = Math.max(120, Math.min(newHeight, window.innerHeight * 0.7));
-                panel.style.height = newHeight + 'px';
-            });
+                handle.addEventListener('mousedown', function (e) {
+                    dragging = true;
+                    startY = e.clientY;
+                    startHeight = panel.offsetHeight;
+                    document.body.style.userSelect = 'none';
+                    e.preventDefault();
+                });
 
-            document.addEventListener('mouseup', function () {
-                if (!dragging) return;
-                dragging = false;
-                document.body.style.userSelect = '';
-            });
+                document.addEventListener('mousemove', function (e) {
+                    if (!dragging) return;
+                    const delta = startY - e.clientY;
+                    let newHeight = startHeight + delta;
+                    newHeight = Math.max(100, Math.min(newHeight, window.innerHeight * 0.7));
+                    panel.style.height = newHeight + 'px';
+                });
+
+                document.addEventListener('mouseup', function () {
+                    if (!dragging) return;
+                    dragging = false;
+                    document.body.style.userSelect = '';
+                    if (panel.offsetHeight > 0) {
+                        localStorage.setItem('relay.logPanelHeight', panel.offsetHeight);
+                    }
+                });
+            }
+
+            // Auto-scroll to newest log line (only if user is near bottom)
+            if (logScroll) {
+                const observer = new MutationObserver(() => {
+                    const distanceFromBottom =
+                        logScroll.scrollHeight - logScroll.scrollTop - logScroll.clientHeight;
+                    if (distanceFromBottom < 100) {
+                        logScroll.scrollTop = logScroll.scrollHeight;
+                    }
+                });
+                observer.observe(logScroll, { childList: true, subtree: true });
+
+                // Initial scroll on load
+                requestAnimationFrame(() => {
+                    logScroll.scrollTop = logScroll.scrollHeight;
+                });
+            }
         });
     </script>
 </body>

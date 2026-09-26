@@ -22,7 +22,7 @@ public class ModelPricingService {
     public ModelPricing forModel(String model) {
         if (model == null || model.isBlank()) return ModelPricing.unknown();
 
-        // Match exact first, then by prefix (e.g. "claude-sonnet-4-5-20250929" → "claude-sonnet-4-5")
+        // Match exact first, then by prefix (e.g. "gpt-4o-20250929" → "gpt-4o")
         Map<String, ModelPricing> table = config.getModelPricing();
         ModelPricing exact = table.get(model);
         if (exact != null) return exact;
