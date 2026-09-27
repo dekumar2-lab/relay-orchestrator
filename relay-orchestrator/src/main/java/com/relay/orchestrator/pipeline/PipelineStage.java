@@ -30,6 +30,8 @@ public enum PipelineStage {
     /** Turn cap reached without reaching a terminal state. */
     CAPPED,
 
+    APPLIED,
+
     /** Unrecoverable error. Terminal. */
     ERROR;
 

@@ -718,8 +718,11 @@ public class ImplementerService {
                     change.path(),
                     change.kind().name(),
                     String.join("\n", unified),
+                    change.before(), // null for CREATE
+                    change.after(), // null for DELETE
                     adds,
                     dels));
+
             totalAdd += adds;
             totalDel += dels;
         }

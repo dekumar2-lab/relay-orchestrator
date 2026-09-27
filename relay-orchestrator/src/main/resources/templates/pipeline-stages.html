@@ -2,913 +2,1101 @@
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 
 <body>
-<div th:fragment="content" class="grid grid-cols-3 gap-5" x-data="pipelinePage()" x-init="init()">
+    <div th:fragment="content" x-data="pipelinePage()" x-init="init()">
 
-    <!-- ============================================================
-         LEFT COLUMN: Story, Session, Plan, Review
+        <!-- ============================================================
+         LEFT COLUMN
          ============================================================ -->
-    <div class="col-span-2 space-y-5">
-
-        <!-- Feature Story Command Input -->
-        <section class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div class="px-5 py-3 border-b border-slate-100 flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                    <div class="flex items-center gap-2">
-                        <span class="material-symbols-outlined text-blue-600 text-[18px]">terminal</span>
-                        <h2 class="text-[14px] font-semibold text-slate-900 truncate">Feature Story Command Input</h2>
-                    </div>
-                    <p class="text-[12px] text-slate-500 mt-0.5">Paste Jira / GitHub ticket or freeform requirement</p>
-                </div>
-
-                <div class="flex items-center gap-2 shrink-0">
-                    <div class="relative" x-data="{ open: false }">
-                        <button type="button" @click="open = !open; if (open) loadRecent()"
-                                class="h-7 px-2.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-[12px] flex items-center gap-1 transition">
-                            <span class="material-symbols-outlined text-[14px]">history</span>
-                            <span>Recent</span>
-                        </button>
-
-                        <div x-show="open" @click.outside="open = false" x-cloak
-                             class="absolute right-0 top-full mt-1 w-80 bg-white border border-slate-200 rounded-lg shadow-lg z-20 overflow-hidden">
-                            <div class="px-3 py-2 border-b border-slate-100 bg-slate-50">
-                                <span class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Recent Sessions</span>
-                            </div>
-                            <div class="max-h-72 overflow-y-auto">
-                                <template x-if="recent.length === 0">
-                                    <div class="p-4 text-center text-[12px] text-slate-500 italic">No sessions yet.</div>
-                                </template>
-                                <template x-for="s in recent" :key="s.sessionId">
-                                    <div @click="loadSession(s.sessionId); open = false"
-                                         class="px-3 py-2 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0 transition">
-                                        <div class="flex items-center justify-between gap-2">
-                                            <span class="font-mono text-[11px] text-blue-700 font-medium"
-                                                  x-text="s.sessionId.slice(0, 8)"></span>
-                                            <span class="text-[9px] font-semibold px-1.5 py-0.5 rounded-full"
-                                                  :class="stageBadgeClass(s.stage)" x-text="s.stage"></span>
-                                        </div>
-                                        <p class="text-[11px] text-slate-600 truncate mt-0.5"
-                                           x-text="s.originalStory || '(no story)'"></p>
-                                        <p class="text-[10px] text-slate-400 font-mono mt-0.5"
-                                           x-text="(s.updatedAt || '').replace('T', ' ').slice(0, 16)"></p>
-                                    </div>
-                                </template>
-                            </div>
-                        </div>
-                    </div>
-
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full font-mono text-[11px] bg-slate-100 text-slate-600">
-                        v2.orchestrate
-                    </span>
-                </div>
-            </div>
-
-            <div class="p-5 space-y-3">
-                <div class="rounded-lg bg-slate-50 p-3">
-                    <textarea x-model="story" rows="4" :disabled="running"
-                              class="w-full bg-transparent font-mono text-[12px] leading-relaxed text-slate-900 resize-none focus:outline-none placeholder:text-slate-400 disabled:opacity-60"
-                              placeholder="e.g. feat(gateway): implement adaptive rate limiter..."></textarea>
-                    <div class="flex items-center justify-between pt-2 text-[11px] font-mono">
-                        <span class="inline-flex items-center gap-1.5">
-                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                            <span class="text-slate-500" x-text="syntaxLabel"></span>
+        <!-- Stepper — full width, sticks to top of scroll area -->
+            <!-- Fixed stepper — pinned under header, right of sidebar -->
+    <div class="fixed left-64 right-0 top-16 z-30 bg-slate-50 border-b border-slate-200 px-6 py-2">
+        <div class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm overflow-x-auto">
+            <template x-for="(stage, idx) in stages" :key="stage.name">
+                <div class="flex items-center gap-1.5 shrink-0">
+                    <div class="flex items-center gap-1.5">
+                        <span class="flex h-3.5 w-3.5 items-center justify-center shrink-0">
+                            <svg x-show="stage.state === 'done'"
+                                 class="h-3 w-3 text-emerald-500" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd"
+                                      d="M16.704 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.411 0z"
+                                      clip-rule="evenodd"/>
+                            </svg>
+                            <span x-show="stage.state === 'active'"
+                                  class="h-3 w-3 rounded-full border-2 border-blue-600 border-t-transparent animate-spin"></span>
+                            <span x-show="stage.state === 'waiting'"
+                                  class="h-2.5 w-2.5 rounded-full bg-amber-400 animate-pulse"></span>
+                            <span x-show="stage.state === 'queued'"
+                                  class="h-1.5 w-1.5 rounded-full bg-slate-300"></span>
                         </span>
-                        <span class="text-slate-400" x-text="story.length + ' chars'"></span>
+                        <span class="text-[11px] font-medium whitespace-nowrap"
+                              :class="stage.state === 'active' ? 'text-slate-900' :
+                                      (stage.state === 'done' ? 'text-slate-600' : 'text-slate-400')"
+                              x-text="stage.name"></span>
                     </div>
-                </div>
-
-                <div class="flex items-center justify-between gap-2">
-                    <button type="button" @click="loadSample()"
-                            class="h-8 px-3 rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 font-medium text-[13px] flex items-center gap-1.5 transition">
-                        <span class="material-symbols-outlined text-[16px]">refresh</span>
-                        Load Sample
-                    </button>
-                    <button type="button" @click="startClarification()" :disabled="running || !story.trim()"
-                            class="h-8 px-3.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[13px] flex items-center gap-2 shadow-sm transition">
-                        <span class="material-symbols-outlined text-[16px]" x-show="!running">bolt</span>
-                        <span class="material-symbols-outlined text-[16px] animate-spin" x-show="running">sync</span>
-                        <span x-text="running ? 'Analyzing...' : 'Start Clarification'"></span>
-                    </button>
-                </div>
-
-                <div x-show="error" x-text="error"
-                     class="rounded-md bg-red-50 border border-red-200 p-2.5 text-[12px] text-red-700 font-mono"></div>
-            </div>
-        </section>
-
-        <!-- Active Session Card -->
-        <section x-show="session" x-cloak
-                 class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-
-            <div class="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
-                <div class="flex items-center gap-2 min-w-0">
-                    <button type="button" @click="copySessionId()"
-                            class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 font-mono text-[11px] transition">
-                        <span class="font-medium text-blue-700" x-text="session?.sessionId?.slice(0,8)"></span>
-                        <span class="material-symbols-outlined text-[14px] text-slate-500"
-                              x-text="copied ? 'check' : 'content_copy'"></span>
-                    </button>
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide border"
-                          :class="stageBadgeClass(session?.stage)" x-text="session?.stage"></span>
-                </div>
-                <div class="flex items-center gap-2">
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full font-mono text-[11px] bg-slate-100 text-slate-600">
-                        Turn <span x-text="session?.turnCount || 0"></span> / <span x-text="session?.maxTurns || 3"></span>
-                    </span>
-                    <button type="button" @click="reset()"
-                            class="font-medium text-[13px] text-blue-700 hover:underline px-1">New</button>
-                </div>
-            </div>
-
-            <div class="p-5 space-y-4" x-show="session && (
-        session.stage === 'AWAITING_ANSWERS' ||
-        session.stage === 'READY_TO_IMPLEMENT' ||
-        session.stage === 'BLOCKED' ||
-        session.stage === 'CAPPED' ||
-        error)">
-
-                <!-- AWAITING_ANSWERS -->
-                <template x-if="session && session.stage === 'AWAITING_ANSWERS'">
-                    <div class="space-y-4">
-                        <div class="rounded-lg bg-blue-50 border border-blue-200 p-3">
-                            <p class="text-[11px] font-semibold uppercase tracking-wider text-blue-800 mb-1">Awaiting your answers</p>
-                            <p class="text-[13px] text-slate-700 leading-relaxed" x-text="session.summary"></p>
-                        </div>
-
-                        <div class="space-y-3">
-                            <template x-for="(q, idx) in (session.questions || [])" :key="q.id">
-                                <div class="rounded-lg bg-slate-50 border border-slate-200 p-4 space-y-3">
-                                    <div class="flex items-start gap-2">
-                                        <span class="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center font-mono text-[10px] font-bold shrink-0 mt-0.5"
-                                              x-text="'Q' + (idx + 1)"></span>
-                                        <p class="text-[14px] font-medium text-slate-900 leading-snug" x-html="renderInline(q.question)"></p>
-                                    </div>
-
-                                    <template x-if="q.options && q.options.length > 0">
-                                        <div class="space-y-1.5">
-                                            <template x-for="opt in q.options" :key="opt.label || opt">
-                                                <div @click="answers[q.id] = (opt.label || opt)"
-                                                     class="flex items-center justify-between p-2.5 rounded-lg bg-white border cursor-pointer transition"
-                                                     :class="answers[q.id] === (opt.label || opt) ? 'border-blue-400 ring-2 ring-blue-100' : 'border-slate-200 hover:bg-slate-50'">
-                                                    <div class="flex items-center gap-2 min-w-0">
-                                                        <span class="w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 transition"
-                                                              :class="answers[q.id] === (opt.label || opt) ? 'bg-blue-600 ring-2 ring-blue-100' : 'bg-slate-200'">
-                                                            <span class="w-1.5 h-1.5 rounded-full bg-white"
-                                                                  x-show="answers[q.id] === (opt.label || opt)"></span>
-                                                        </span>
-                                                        <span class="text-[13px] text-slate-800 truncate"
-                                                              x-html="renderInline(opt.label || opt)"></span>
-                                                    </div>
-                                                    <span x-show="opt.hint"
-                                                          class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0"
-                                                          :class="idx === 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'"
-                                                          x-text="opt.hint"></span>
-                                                </div>
-                                            </template>
-                                        </div>
-                                    </template>
-
-                                    <input type="text" x-model="answers[q.id]" placeholder="Your answer..."
-                                           class="w-full h-8 px-3 rounded-md bg-white border border-slate-200 font-mono text-[12px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
-                                </div>
-                            </template>
-                        </div>
-
-                        <div>
-                            <label class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">Additional context (optional)</label>
-                            <input type="text" x-model="additionalContext" placeholder="Any other notes..."
-                                   class="w-full h-8 px-3 rounded-md bg-white border border-slate-200 font-mono text-[12px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
-                        </div>
-
-                        <div class="flex justify-end">
-                            <button type="button" @click="submitAnswers()" :disabled="submitting || !allAnswered"
-                                    class="h-9 px-5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[13px] flex items-center gap-2 transition">
-                                <span class="material-symbols-outlined text-[16px]" x-show="!submitting">send</span>
-                                <span class="material-symbols-outlined text-[16px] animate-spin" x-show="submitting">autorenew</span>
-                                <span x-text="submitting ? 'Submitting...' : 'Submit Clarification Answer'"></span>
-                            </button>
-                        </div>
-                    </div>
-                </template>
-
-                <!-- READY_TO_IMPLEMENT -->
-                <template x-if="session && session.stage === 'READY_TO_IMPLEMENT'">
-                    <div class="space-y-4">
-                        <div class="rounded-lg bg-emerald-50 border border-emerald-200 p-4">
-                            <div class="flex items-center gap-2 mb-2 flex-wrap">
-                                <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                                <p class="text-[11px] font-semibold uppercase tracking-wider text-emerald-800">Ready to implement</p>
-                                <span class="inline-flex items-center px-1.5 py-0.5 rounded-full bg-white border border-emerald-200 text-[10px] font-mono text-emerald-700"
-                                      x-text="'confidence: ' + (session.confidence || '')"></span>
-                                <span class="inline-flex items-center px-1.5 py-0.5 rounded-full bg-white border border-slate-200 text-[10px] font-mono text-slate-600"
-                                      x-text="'complexity: ' + (session.complexity || '')"></span>
-                            </div>
-                            <p class="text-[13px] text-slate-800 leading-relaxed" x-text="session.summary"></p>
-                        </div>
-
-                        <div class="rounded-lg bg-slate-50 border border-slate-200 overflow-hidden">
-                            <button type="button" @click="previewOpen = !previewOpen"
-                                    class="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-slate-100 transition">
-                                <div class="flex items-center gap-2">
-                                    <span class="material-symbols-outlined text-slate-500 text-[16px]">security</span>
-                                    <span class="text-[13px] font-medium text-slate-800">Risk &amp; Assumptions</span>
-                                </div>
-                                <span class="material-symbols-outlined text-slate-500 text-[18px] transition-transform"
-                                      :class="previewOpen ? 'rotate-180' : ''">expand_more</span>
-                            </button>
-                            <div x-show="previewOpen" class="px-3 pb-3 space-y-3 border-t border-slate-200 pt-3">
-                                <template x-if="session.riskNotes && session.riskNotes.length > 0">
-                                    <div>
-                                        <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Risk notes</p>
-                                        <ul class="space-y-1">
-                                            <template x-for="r in session.riskNotes" :key="r">
-                                                <li class="text-[12px] text-slate-700 flex gap-2">
-                                                    <span class="text-amber-600 shrink-0">▸</span>
-                                                    <span x-text="r"></span>
-                                                </li>
-                                            </template>
-                                        </ul>
-                                    </div>
-                                </template>
-                                <template x-if="session.assumptionsMade && session.assumptionsMade.length > 0">
-                                    <div>
-                                        <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Assumptions</p>
-                                        <ul class="space-y-1">
-                                            <template x-for="a in session.assumptionsMade" :key="a">
-                                                <li class="flex items-center gap-2 p-1.5 rounded bg-white text-[12px] text-slate-700">
-                                                    <span class="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                                                        <span class="material-symbols-outlined text-[12px]">check</span>
-                                                    </span>
-                                                    <span x-text="a"></span>
-                                                </li>
-                                            </template>
-                                        </ul>
-                                    </div>
-                                </template>
-                            </div>
-                        </div>
-
-                        <template x-if="!plan">
-                            <div class="flex justify-end">
-                                <button type="button" @click="generatePlan()" :disabled="generatingPlan"
-                                        class="h-9 px-5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[13px] flex items-center gap-2 transition"
-                                        style="min-width: 220px; justify-content: center;">
-                                    <span class="material-symbols-outlined text-[16px]" x-show="!generatingPlan">architecture</span>
-                                    <span class="material-symbols-outlined text-[16px] animate-spin" x-show="generatingPlan">autorenew</span>
-                                    <span x-text="generatingPlan ? 'Generating plan...' : 'Generate Plan'"></span>
-                                </button>
-                            </div>
-                        </template>
-                    </div>
-                </template>
-
-                <!-- BLOCKED / CAPPED -->
-                <template x-if="session && (session.stage === 'BLOCKED' || session.stage === 'CAPPED')">
-                    <div class="space-y-3">
-                        <div class="rounded-lg border p-4"
-                             :class="session.stage === 'BLOCKED' ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'">
-                            <p class="text-[11px] font-semibold uppercase tracking-wider mb-2"
-                               :class="session.stage === 'BLOCKED' ? 'text-red-800' : 'text-amber-800'"
-                               x-text="session.stage === 'BLOCKED' ? 'Story blocked' : 'Turn limit reached'"></p>
-                            <p class="text-[13px] text-slate-700 leading-relaxed" x-text="session.summary"></p>
-                        </div>
-                        <button type="button" @click="reset()"
-                                class="text-[12px] text-slate-500 hover:text-slate-900 transition">
-                            ↺ Try a different story
-                        </button>
-                    </div>
-                </template>
-
-                <div x-show="error" x-text="error"
-                     class="rounded-md bg-red-50 border border-red-200 p-2.5 text-[12px] text-red-700 font-mono"></div>
-            </div>
-        </section>
-
-        <!-- Plan card — collapsible, download, no Review Diff -->
-        <template x-if="plan">
-            <div class="rounded-xl border shadow-sm overflow-hidden"
-                 :class="planStatusBadge(plan.status)">
-
-                <div class="px-4 py-2.5 flex items-center justify-between gap-3 border-b cursor-pointer hover:opacity-90 transition"
-                     :class="planStatusBadge(plan.status)"
-                     @click="planExpanded = !planExpanded">
-                    <div class="flex items-center gap-2 min-w-0">
-                        <span class="material-symbols-outlined text-[16px] transition-transform"
-                              :class="planExpanded ? 'rotate-90' : ''">chevron_right</span>
-                        <span class="material-symbols-outlined text-[16px]">architecture</span>
-                        <span class="text-[13px] font-semibold">Implementation Plan</span>
-                        <span class="text-[10px] font-mono text-slate-500" x-text="plan.shortId"></span>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <span class="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/60 border border-slate-200"
-                              x-text="plan.status"></span>
-                        <span class="text-[10px] text-slate-500" x-text="'by ' + plan.createdBy"></span>
-                        <a :href="'/artifact/' + plan.id + '/download'"
-                           @click.stop
-                           class="h-6 w-6 rounded flex items-center justify-center text-slate-500 hover:text-blue-700 hover:bg-white/60 transition"
-                           title="Download plan as markdown">
-                            <span class="material-symbols-outlined text-[14px]">download</span>
-                        </a>
-                    </div>
-                </div>
-
-                <div x-show="planExpanded" x-collapse>
-                    <div class="bg-white px-5 py-4 prose prose-sm max-w-none
-                                prose-headings:text-slate-900 prose-headings:font-semibold
-                                prose-p:text-slate-700 prose-li:text-slate-700
-                                prose-code:text-blue-700 prose-code:bg-slate-100
-                                prose-code:px-1 prose-code:rounded prose-code:font-mono
-                                prose-code:text-[12px] prose-strong:text-slate-900"
-                         x-html="renderMarkdown(plan.content)">
-                    </div>
-
-                    <div x-show="artifactError" x-text="artifactError"
-                         class="px-4 py-2 bg-red-50 border-t border-red-200 text-[12px] text-red-700 font-mono"></div>
-
-                    <!-- DRAFT -->
-                    <template x-if="plan.status === 'DRAFT'">
-                        <div class="px-4 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3">
-                            <p class="text-[11px] text-slate-500 italic">
-                                Review the plan before implementing. Approving unlocks the implementer.
-                            </p>
-                            <div class="flex items-center gap-2">
-                                <button type="button" @click="rejectPlan()"
-                                        class="h-8 px-3 rounded-md bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium text-[12px] transition">
-                                    Reject
-                                </button>
-                                <button type="button" @click="approvePlan()"
-                                        class="h-8 px-4 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
-                                    <span class="material-symbols-outlined text-[14px]">check</span>
-                                    Approve
-                                </button>
-                            </div>
-                        </div>
-                    </template>
-
-                    <!-- APPROVED -->
-                    <template x-if="plan.status === 'APPROVED'">
-                        <div class="px-4 py-3 bg-emerald-50 border-t border-emerald-200 flex items-center justify-between gap-3">
-                            <p class="text-[11px] text-emerald-800">
-                                Plan approved. Ready to run the implementer.
-                            </p>
-                            <button type="button" @click="runImplementer()" :disabled="implementing"
-                                    class="h-8 px-4 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition"
-                                    style="min-width: 180px; justify-content: center;">
-                                <span class="material-symbols-outlined text-[14px]" x-show="!implementing">build</span>
-                                <span class="material-symbols-outlined text-[14px] animate-spin" x-show="implementing">autorenew</span>
-                                <span x-text="implementing ? 'Implementing...' : 'Run Implementer'"></span>
-                            </button>
-                        </div>
-                    </template>
-
-                    <!-- REJECTED -->
-                    <template x-if="plan.status === 'REJECTED'">
-                        <div class="px-4 py-3 bg-red-50 border-t border-red-200 flex items-center justify-between gap-3">
-                            <p class="text-[11px] text-red-800">
-                                Plan rejected. Generate a new one to try again.
-                            </p>
-                            <button type="button" @click="generatePlan()" :disabled="generatingPlan"
-                                    class="h-8 px-4 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
-                                <span class="material-symbols-outlined text-[14px]" x-show="!generatingPlan">refresh</span>
-                                <span class="material-symbols-outlined text-[14px] animate-spin" x-show="generatingPlan">autorenew</span>
-                                <span x-text="generatingPlan ? 'Regenerating...' : 'Regenerate Plan'"></span>
-                            </button>
-                        </div>
-                    </template>
-
-                    <!-- EXECUTED — no Review Diff here -->
-                    <template x-if="plan.status === 'EXECUTED'">
-                        <div class="px-4 py-3 bg-blue-50 border-t border-blue-200 flex items-center justify-between gap-3">
-                            <p class="text-[11px] text-blue-800">
-                                Plan has been executed.
-                            </p>
-                        </div>
+                    <template x-if="idx < stages.length - 1">
+                        <span class="text-slate-300 text-[10px]">›</span>
                     </template>
                 </div>
-            </div>
-        </template>
-
-        <!-- Review card -->
-        <template x-if="session && session.stage === 'IMPLEMENTATION_READY'">
-            <div class="rounded-xl border shadow-sm overflow-hidden"
-                 :class="review ? verdictBadge(review.verdict) : 'border-slate-200 bg-white'">
-
-                <div class="px-4 py-2.5 flex items-center justify-between gap-3 border-b"
-                     :class="review ? verdictBadge(review.verdict) : 'bg-slate-50 border-slate-200'">
-                    <div class="flex items-center gap-2 min-w-0">
-                        <span class="material-symbols-outlined text-[16px]">rule</span>
-                        <span class="text-[13px] font-semibold">Code Review</span>
-                        <span x-show="review" class="text-[10px] font-mono text-slate-500"
-                              x-text="review ? review.shortId : ''"></span>
-                    </div>
-                    <div class="flex items-center gap-2" x-show="review">
-                        <span class="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/60 border"
-                              :class="verdictBadge(review?.verdict)"
-                              x-text="review?.verdict || 'PENDING'"></span>
-                        <span class="text-[10px] text-slate-500"
-                              x-text="review ? ('by ' + review.createdBy) : ''"></span>
-                        <a :href="'/artifact/' + review.id + '/download'"
-                           class="h-6 w-6 rounded flex items-center justify-center text-slate-500 hover:text-blue-700 hover:bg-white/60 transition"
-                           title="Download review as markdown">
-                            <span class="material-symbols-outlined text-[14px]">download</span>
-                        </a>
-                    </div>
-                </div>
-
-                <template x-if="review">
-                    <div class="bg-white px-5 py-4 prose prose-sm max-w-none
-                                prose-headings:text-slate-900 prose-headings:font-semibold
-                                prose-p:text-slate-700 prose-li:text-slate-700
-                                prose-code:text-blue-700 prose-code:bg-slate-100
-                                prose-code:px-1 prose-code:rounded prose-code:font-mono
-                                prose-code:text-[12px] prose-strong:text-slate-900"
-                         x-html="renderMarkdown(review.content)">
-                    </div>
-                </template>
-
-                <template x-if="!review">
-                    <div class="px-5 py-4 text-[13px] text-slate-600">
-                        The implementer produced a diff. Generate a review to have
-                        <span class="font-medium text-slate-800">dwight</span> audit it before you apply.
-                    </div>
-                </template>
-
-                <div x-show="artifactError" x-text="artifactError"
-                     class="px-4 py-2 bg-red-50 border-t border-red-200 text-[12px] text-red-700 font-mono"></div>
-
-                <div class="px-4 py-3 border-t bg-slate-50 flex items-center justify-between gap-3">
-                    <p class="text-[11px] text-slate-500 italic">
-                        <span x-show="!review">Review the diff before applying.</span>
-                        <span x-show="review && review?.verdict === 'APPROVE'">
-                            Review passed. Ready to apply.
-                        </span>
-                        <span x-show="review && review?.verdict && review?.verdict !== 'APPROVE'">
-                            Review found issues. Re-implement with the feedback.
-                        </span>
-                    </p>
-
-                    <div class="flex items-center gap-2">
-                        <button x-show="!review" type="button"
-                                @click="generateReview()" :disabled="generatingReview"
-                                class="h-8 px-4 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
-                            <span class="material-symbols-outlined text-[14px]" x-show="!generatingReview">rule</span>
-                            <span class="material-symbols-outlined text-[14px] animate-spin" x-show="generatingReview">autorenew</span>
-                            <span x-text="generatingReview ? 'Reviewing...' : 'Generate Review'"></span>
-                        </button>
-
-                        <button x-show="review && review?.verdict && review?.verdict !== 'APPROVE'"
-                                type="button"
-                                @click="reimplement()" :disabled="reimplementing"
-                                class="h-8 px-4 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
-                            <span class="material-symbols-outlined text-[14px]" x-show="!reimplementing">refresh</span>
-                            <span class="material-symbols-outlined text-[14px] animate-spin" x-show="reimplementing">autorenew</span>
-                            <span x-text="reimplementing ? 'Re-implementing...' : 'Re-implement with Feedback'"></span>
-                        </button>
-
-                        <a :href="'/code-preview?session=' + session.sessionId"
-                           class="h-8 px-4 rounded-md bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium text-[12px] flex items-center gap-1.5 transition">
-                            <span class="material-symbols-outlined text-[14px]">difference</span>
-                            Review Diff
-                        </a>
-                    </div>
-                </div>
-            </div>
-        </template>
-    </div>
-
-    <!-- ============================================================
-         RIGHT COLUMN: Token Pipeline
-         ============================================================ -->
-    <div class="col-span-1 space-y-5">
-        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
-            <div class="flex items-center gap-2">
-                <span class="material-symbols-outlined text-blue-600 text-[18px]">memory</span>
-                <h3 class="text-[14px] font-semibold text-slate-900">Token Pipeline</h3>
-            </div>
-
-            <div class="rounded-lg bg-slate-50 p-3 space-y-1">
-                <div class="flex items-center gap-1.5">
-                    <span class="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
-                    <span class="text-[12px] font-medium text-slate-800">Prompt Caching</span>
-                </div>
-                <p class="text-[11px] text-slate-500 leading-relaxed">
-                    Configured on every call. Activates once the system prompt exceeds ~1024 tokens.
-                </p>
-            </div>
-
-            <div class="rounded-lg bg-slate-50 p-3 space-y-1 opacity-70">
-                <div class="flex items-center gap-1.5">
-                    <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-                    <span class="text-[12px] font-medium text-slate-700">Retrieval Trimming</span>
-                </div>
-                <p class="text-[11px] text-slate-500 leading-relaxed">
-                    Planned for Phase 3. Trims retrieved code chunks to fit the token budget.
-                </p>
-            </div>
-
-            <div class="pt-1 flex justify-end">
-                <a th:href="@{/token-tracker}"
-                   class="inline-flex items-center gap-1 text-[13px] font-medium text-blue-700 hover:text-blue-800 transition">
-                    View Token Tracker
-                    <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
-                </a>
-            </div>
+            </template>
         </div>
     </div>
 
-    <!-- ============================================================
-         Alpine component
+    <!-- Spacer to reserve space for the fixed bar -->
+    <div style="height: 52px;"></div>
+
+        <!-- ============================================================
+         TWO-COLUMN GRID
          ============================================================ -->
-    <script>
-        function pipelinePage() {
-            return {
-                // --- core state ---
-                story: '',
-                running: false,
-                submitting: false,
-                implementing: false,
-                generatingPlan: false,
-                generatingReview: false,
-                reimplementing: false,
-                session: null,
-                answers: {},
-                additionalContext: '',
-                error: '',
-                copied: false,
-                previewOpen: false,
+        <div class="grid grid-cols-3 gap-5">
 
-                // --- artifact state ---
-                artifacts: [],
-                plan: null,
-                review: null,
-                planExpanded: true,
-                artifactError: '',
-                recent: [],
+            <!-- ============================================================
+         LEFT COLUMN: Story, Session, Plan, Review
+         ============================================================ -->
+            <div class="col-span-2 space-y-5">
 
-                init() {
-                    const params = new URLSearchParams(window.location.search);
-                    const id = params.get('session') || localStorage.getItem('relay.lastSessionId');
-                    if (id) this.restoreLastSession(id);
-                },
+                <!-- Feature Story Command Input -->
+                <section class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="px-5 py-3 border-b border-slate-100 flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-2">
+                                <span class="material-symbols-outlined text-blue-600 text-[18px]">terminal</span>
+                                <h2 class="text-[14px] font-semibold text-slate-900 truncate">Feature Story Command
+                                    Input</h2>
+                            </div>
+                            <p class="text-[12px] text-slate-500 mt-0.5">Paste Jira / GitHub ticket or freeform
+                                requirement</p>
+                        </div>
 
-                get syntaxLabel() {
-                    if (!this.story.trim()) return 'Empty';
-                    if (this.story.length < 20) return 'Brief';
-                    return 'Clean spec';
-                },
+                        <div class="flex items-center gap-2 shrink-0">
+                            <div class="relative" x-data="{ open: false }">
+                                <button type="button" @click="open = !open; if (open) loadRecent()"
+                                    class="h-7 px-2.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-[12px] flex items-center gap-1 transition">
+                                    <span class="material-symbols-outlined text-[14px]">history</span>
+                                    <span>Recent</span>
+                                </button>
 
-                get allAnswered() {
-                    if (!this.session || !this.session.questions) return false;
-                    return this.session.questions.every(q => (this.answers[q.id] || '').trim().length > 0);
-                },
+                                <div x-show="open" @click.outside="open = false" x-cloak
+                                    class="absolute right-0 top-full mt-1 w-80 bg-white border border-slate-200 rounded-lg shadow-lg z-40 overflow-hidden">
+                                    <div class="px-3 py-2 border-b border-slate-100 bg-slate-50">
+                                        <span
+                                            class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Recent
+                                            Sessions</span>
+                                    </div>
+                                    <div class="max-h-72 overflow-y-auto">
+                                        <template x-if="recent.length === 0">
+                                            <div class="p-4 text-center text-[12px] text-slate-500 italic">No sessions
+                                                yet.</div>
+                                        </template>
+                                        <template x-for="s in recent" :key="s.sessionId">
+                                            <div @click="loadSession(s.sessionId); open = false"
+                                                class="px-3 py-2 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0 transition">
+                                                <div class="flex items-center justify-between gap-2">
+                                                    <span class="font-mono text-[11px] text-blue-700 font-medium"
+                                                        x-text="s.sessionId.slice(0, 8)"></span>
+                                                    <span class="text-[9px] font-semibold px-1.5 py-0.5 rounded-full"
+                                                        :class="stageBadgeClass(s.stage)" x-text="s.stage"></span>
+                                                </div>
+                                                <p class="text-[11px] text-slate-600 truncate mt-0.5"
+                                                    x-text="s.originalStory || '(no story)'"></p>
+                                                <p class="text-[10px] text-slate-400 font-mono mt-0.5"
+                                                    x-text="(s.updatedAt || '').replace('T', ' ').slice(0, 16)"></p>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
 
-                renderInline(text) {
-                    if (!text) return '';
-                    const escaped = text
-                        .replace(/&/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;');
-                    return escaped.replace(/`([^`]+)`/g,
-                        '<code class="px-1 py-0.5 rounded bg-slate-200 text-slate-800 font-mono text-[11px]">$1</code>');
-                },
+                            <span
+                                class="inline-flex items-center px-2 py-0.5 rounded-full font-mono text-[11px] bg-slate-100 text-slate-600">
+                                v2.orchestrate
+                            </span>
+                        </div>
+                    </div>
 
-                renderMarkdown(text) {
-                    if (!text) return '';
-                    try {
-                        return marked.parse(text);
-                    } catch (e) {
-                        return '<pre>' + text.replace(/</g, '&lt;') + '</pre>';
-                    }
-                },
+                    <div class="p-5 space-y-3">
+                        <div class="rounded-lg bg-slate-50 p-3">
+                            <textarea x-model="story" rows="4" :disabled="running"
+                                class="w-full bg-transparent font-mono text-[12px] leading-relaxed text-slate-900 resize-none focus:outline-none placeholder:text-slate-400 disabled:opacity-60"
+                                placeholder="e.g. feat(gateway): implement adaptive rate limiter..."></textarea>
+                            <div class="flex items-center justify-between pt-2 text-[11px] font-mono">
+                                <span class="inline-flex items-center gap-1.5">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                    <span class="text-slate-500" x-text="syntaxLabel"></span>
+                                </span>
+                                <span class="text-slate-400" x-text="story.length + ' chars'"></span>
+                            </div>
+                        </div>
 
-                async restoreLastSession(id) {
-                    try {
-                        const res = await fetch('/pipeline/session/' + id);
-                        if (!res.ok) {
-                            this.error = 'Session not found: ' + id.slice(0, 8);
-                            localStorage.removeItem('relay.lastSessionId');
-                            return;
-                        }
-                        this.setSession(await res.json());
-                    } catch (e) {
-                        this.error = 'Failed to load session: ' + e.message;
-                    }
-                },
+                        <div class="flex items-center justify-between gap-2">
+                            <button type="button" @click="loadSample()"
+                                class="h-8 px-3 rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 font-medium text-[13px] flex items-center gap-1.5 transition">
+                                <span class="material-symbols-outlined text-[16px]">refresh</span>
+                                Load Sample
+                            </button>
+                            <button type="button" @click="startClarification()"
+                                :disabled="running || !story.trim() || busy()"
+                                class="h-8 px-3.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[13px] flex items-center gap-2 shadow-sm transition">
+                                <span class="material-symbols-outlined text-[16px]" x-show="!running">bolt</span>
+                                <span class="material-symbols-outlined text-[16px] animate-spin"
+                                    x-show="running">sync</span>
+                                <span x-text="running ? 'Analyzing...' : 'Start Clarification'"></span>
+                            </button>
+                        </div>
 
-                setSession(s) {
-                    this.session = s;
-                    if (window.Alpine && Alpine.store('session')) {
-                        Alpine.store('session').setSession(s);
-                    }
-                    if (s && s.sessionId) {
-                        localStorage.setItem('relay.lastSessionId', s.sessionId);
-                    }
-                    this.loadArtifacts();
-                },
+                        <div x-show="error" x-text="error"
+                            class="rounded-md bg-red-50 border border-red-200 p-2.5 text-[12px] text-red-700 font-mono">
+                        </div>
+                    </div>
+                </section>
 
-                loadSample() {
-                    const samples = [
-                        'feat(auth): Add biometric passkey authentication fallback with rate limiting on failed attempts',
-                        'fix(router): Resolve race condition during parallel pipeline stage compilation',
-                        'refactor(db): Migrate session credential metadata to Redis with automatic TTL',
-                        'perf(compiler): Parallel AST symbol resolution for monorepo dependency graphs'
-                    ];
-                    const current = this.story;
-                    const idx = samples.indexOf(current);
-                    this.story = samples[(idx + 1) % samples.length];
-                },
+                <!-- Active Session Card -->
+                <section x-show="session" x-cloak
+                    class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
 
-                async startClarification() {
-                    if (!this.story.trim() || this.running) return;
-                    this.running = true;
-                    this.error = '';
-                    if (window.Alpine?.store('session')) {
-                        Alpine.store('session').setPending('Analysis');
-                    }
-                    try {
-                        const res = await fetch('/pipeline/clarify', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ story: this.story })
-                        });
-                        const data = await res.json();
-                        if (!res.ok) throw new Error(data.error || 'Failed to start session');
-                        this.setSession(data);
-                        this.answers = {};
-                        this.additionalContext = '';
-                    } catch (e) {
-                        this.error = e.message;
-                    } finally {
-                        this.running = false;
-                    }
-                },
+                    <div class="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <button type="button" @click="copySessionId()"
+                                class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 font-mono text-[11px] transition">
+                                <span class="font-medium text-blue-700" x-text="session?.sessionId?.slice(0,8)"></span>
+                                <span class="material-symbols-outlined text-[14px] text-slate-500"
+                                    x-text="copied ? 'check' : 'content_copy'"></span>
+                            </button>
+                            <span
+                                class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide border"
+                                :class="stageBadgeClass(session?.stage)" x-text="session?.stage"></span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span
+                                class="inline-flex items-center px-2 py-0.5 rounded-full font-mono text-[11px] bg-slate-100 text-slate-600">
+                                Turn <span x-text="session?.turnCount || 0"></span> / <span
+                                    x-text="session?.maxTurns || 3"></span>
+                            </span>
+                            <button type="button" @click="reset()"
+                                class="font-medium text-[13px] text-blue-700 hover:underline px-1">New</button>
+                        </div>
+                    </div>
 
-                async submitAnswers() {
-                    if (!this.session || this.submitting) return;
-                    this.submitting = true;
-                    this.error = '';
-                    if (window.Alpine?.store('session')) {
-                        Alpine.store('session').setPending('Decision');
-                    }
-                    try {
-                        const payload = {
-                            sessionId: this.session.sessionId,
-                            answers: Object.entries(this.answers).map(([qid, ans]) => ({
-                                questionId: qid,
-                                answer: ans
-                            })),
-                            additionalContext: this.additionalContext
+                    <div class="p-5 space-y-4" x-show="session && (
+                    session.stage === 'AWAITING_ANSWERS' ||
+                    session.stage === 'READY_TO_IMPLEMENT' ||
+                    session.stage === 'BLOCKED' ||
+                    session.stage === 'CAPPED' ||
+                    error)">
+
+                        <!-- AWAITING_ANSWERS -->
+                        <template x-if="session && session.stage === 'AWAITING_ANSWERS'">
+                            <div class="space-y-4">
+                                <div class="rounded-lg bg-blue-50 border border-blue-200 p-3">
+                                    <p class="text-[11px] font-semibold uppercase tracking-wider text-blue-800 mb-1">
+                                        Awaiting your answers</p>
+                                    <p class="text-[13px] text-slate-700 leading-relaxed" x-text="session.summary"></p>
+                                </div>
+
+                                <div class="space-y-3">
+                                    <template x-for="(q, idx) in (session.questions || [])" :key="q.id">
+                                        <div class="rounded-lg bg-slate-50 border border-slate-200 p-4 space-y-3">
+                                            <div class="flex items-start gap-2">
+                                                <span
+                                                    class="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center font-mono text-[10px] font-bold shrink-0 mt-0.5"
+                                                    x-text="'Q' + (idx + 1)"></span>
+                                                <p class="text-[14px] font-medium text-slate-900 leading-snug"
+                                                    x-html="renderInline(q.question)"></p>
+                                            </div>
+
+                                            <template x-if="q.options && q.options.length > 0">
+                                                <div class="space-y-1.5">
+                                                    <template x-for="opt in q.options" :key="opt.label || opt">
+                                                        <div @click="answers[q.id] = (opt.label || opt)"
+                                                            class="flex items-center justify-between p-2.5 rounded-lg bg-white border cursor-pointer transition"
+                                                            :class="answers[q.id] === (opt.label || opt) ? 'border-blue-400 ring-2 ring-blue-100' : 'border-slate-200 hover:bg-slate-50'">
+                                                            <div class="flex items-center gap-2 min-w-0">
+                                                                <span
+                                                                    class="w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 transition"
+                                                                    :class="answers[q.id] === (opt.label || opt) ? 'bg-blue-600 ring-2 ring-blue-100' : 'bg-slate-200'">
+                                                                    <span class="w-1.5 h-1.5 rounded-full bg-white"
+                                                                        x-show="answers[q.id] === (opt.label || opt)"></span>
+                                                                </span>
+                                                                <span class="text-[13px] text-slate-800 truncate"
+                                                                    x-html="renderInline(opt.label || opt)"></span>
+                                                            </div>
+                                                            <span x-show="opt.hint"
+                                                                class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0"
+                                                                :class="idx === 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'"
+                                                                x-text="opt.hint"></span>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </template>
+
+                                            <input type="text" x-model="answers[q.id]" placeholder="Your answer..."
+                                                class="w-full h-8 px-3 rounded-md bg-white border border-slate-200 font-mono text-[12px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                                        </div>
+                                    </template>
+                                </div>
+
+                                <div>
+                                    <label
+                                        class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">Additional
+                                        context (optional)</label>
+                                    <input type="text" x-model="additionalContext" placeholder="Any other notes..."
+                                        class="w-full h-8 px-3 rounded-md bg-white border border-slate-200 font-mono text-[12px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                                </div>
+
+                                <div class="flex justify-end">
+                                    <button type="button" @click="submitAnswers()"
+                                        :disabled="submitting || !allAnswered || busy()"
+                                        class="h-9 px-5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[13px] flex items-center gap-2 transition">
+                                        <span class="material-symbols-outlined text-[16px]"
+                                            x-show="!submitting">send</span>
+                                        <span class="material-symbols-outlined text-[16px] animate-spin"
+                                            x-show="submitting">autorenew</span>
+                                        <span
+                                            x-text="submitting ? 'Submitting...' : 'Submit Clarification Answer'"></span>
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- READY_TO_IMPLEMENT -->
+                        <template x-if="session && session.stage === 'READY_TO_IMPLEMENT'">
+                            <div class="space-y-4">
+                                <div class="rounded-lg bg-emerald-50 border border-emerald-200 p-4">
+                                    <div class="flex items-center gap-2 mb-2 flex-wrap">
+                                        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                                        <p class="text-[11px] font-semibold uppercase tracking-wider text-emerald-800">
+                                            Ready to implement</p>
+                                        <span
+                                            class="inline-flex items-center px-1.5 py-0.5 rounded-full bg-white border border-emerald-200 text-[10px] font-mono text-emerald-700"
+                                            x-text="'confidence: ' + (session.confidence || '')"></span>
+                                        <span
+                                            class="inline-flex items-center px-1.5 py-0.5 rounded-full bg-white border border-slate-200 text-[10px] font-mono text-slate-600"
+                                            x-text="'complexity: ' + (session.complexity || '')"></span>
+                                    </div>
+                                    <p class="text-[13px] text-slate-800 leading-relaxed" x-text="session.summary"></p>
+                                </div>
+
+                                <div class="rounded-lg bg-slate-50 border border-slate-200 overflow-hidden">
+                                    <button type="button" @click="previewOpen = !previewOpen"
+                                        class="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-slate-100 transition">
+                                        <div class="flex items-center gap-2">
+                                            <span
+                                                class="material-symbols-outlined text-slate-500 text-[16px]">security</span>
+                                            <span class="text-[13px] font-medium text-slate-800">Risk &amp;
+                                                Assumptions</span>
+                                        </div>
+                                        <span
+                                            class="material-symbols-outlined text-slate-500 text-[18px] transition-transform"
+                                            :class="previewOpen ? 'rotate-180' : ''">expand_more</span>
+                                    </button>
+                                    <div x-show="previewOpen"
+                                        class="px-3 pb-3 space-y-3 border-t border-slate-200 pt-3">
+                                        <template x-if="session.riskNotes && session.riskNotes.length > 0">
+                                            <div>
+                                                <p
+                                                    class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                                                    Risk notes</p>
+                                                <ul class="space-y-1">
+                                                    <template x-for="r in session.riskNotes" :key="r">
+                                                        <li class="text-[12px] text-slate-700 flex gap-2">
+                                                            <span class="text-amber-600 shrink-0">▸</span>
+                                                            <span x-text="r"></span>
+                                                        </li>
+                                                    </template>
+                                                </ul>
+                                            </div>
+                                        </template>
+                                        <template x-if="session.assumptionsMade && session.assumptionsMade.length > 0">
+                                            <div>
+                                                <p
+                                                    class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                                                    Assumptions</p>
+                                                <ul class="space-y-1">
+                                                    <template x-for="a in session.assumptionsMade" :key="a">
+                                                        <li
+                                                            class="flex items-center gap-2 p-1.5 rounded bg-white text-[12px] text-slate-700">
+                                                            <span
+                                                                class="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                                                                <span
+                                                                    class="material-symbols-outlined text-[12px]">check</span>
+                                                            </span>
+                                                            <span x-text="a"></span>
+                                                        </li>
+                                                    </template>
+                                                </ul>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                <template x-if="!plan">
+                                    <div class="flex justify-end">
+                                        <button type="button" @click="generatePlan()"
+                                            :disabled="generatingPlan || busy()"
+                                            class="h-9 px-5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[13px] flex items-center gap-2 transition"
+                                            style="min-width: 220px; justify-content: center;">
+                                            <span class="material-symbols-outlined text-[16px]"
+                                                x-show="!generatingPlan">architecture</span>
+                                            <span class="material-symbols-outlined text-[16px] animate-spin"
+                                                x-show="generatingPlan">autorenew</span>
+                                            <span
+                                                x-text="generatingPlan ? 'Generating plan...' : 'Generate Plan'"></span>
+                                        </button>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+
+                        <!-- BLOCKED / CAPPED -->
+                        <template x-if="session && (session.stage === 'BLOCKED' || session.stage === 'CAPPED')">
+                            <div class="space-y-3">
+                                <div class="rounded-lg border p-4"
+                                    :class="session.stage === 'BLOCKED' ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'">
+                                    <p class="text-[11px] font-semibold uppercase tracking-wider mb-2"
+                                        :class="session.stage === 'BLOCKED' ? 'text-red-800' : 'text-amber-800'"
+                                        x-text="session.stage === 'BLOCKED' ? 'Story blocked' : 'Turn limit reached'">
+                                    </p>
+                                    <p class="text-[13px] text-slate-700 leading-relaxed" x-text="session.summary"></p>
+                                </div>
+                                <button type="button" @click="reset()"
+                                    class="text-[12px] text-slate-500 hover:text-slate-900 transition">
+                                    ↺ Try a different story
+                                </button>
+                            </div>
+                        </template>
+
+                        <div x-show="error" x-text="error"
+                            class="rounded-md bg-red-50 border border-red-200 p-2.5 text-[12px] text-red-700 font-mono">
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Plan card -->
+                <template x-if="plan">
+                    <div class="rounded-xl border shadow-sm overflow-hidden" :class="planStatusBadge(plan.status)">
+
+                        <div class="px-4 py-2.5 flex items-center justify-between gap-3 border-b cursor-pointer hover:opacity-90 transition"
+                            :class="planStatusBadge(plan.status)" @click="planExpanded = !planExpanded">
+                            <div class="flex items-center gap-2 min-w-0">
+                                <span class="material-symbols-outlined text-[16px] transition-transform"
+                                    :class="planExpanded ? 'rotate-90' : ''">chevron_right</span>
+                                <span class="material-symbols-outlined text-[16px]">architecture</span>
+                                <span class="text-[13px] font-semibold">Implementation Plan</span>
+                                <span class="text-[10px] font-mono text-slate-500" x-text="plan.shortId"></span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span
+                                    class="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/60 border border-slate-200"
+                                    x-text="plan.status"></span>
+                                <span class="text-[10px] text-slate-500" x-text="'by ' + plan.createdBy"></span>
+                                <a :href="'/artifact/' + plan.id + '/download'" @click.stop
+                                    class="h-6 w-6 rounded flex items-center justify-center text-slate-500 hover:text-blue-700 hover:bg-white/60 transition"
+                                    title="Download plan as markdown">
+                                    <span class="material-symbols-outlined text-[14px]">download</span>
+                                </a>
+                            </div>
+                        </div>
+
+                        <div x-show="planExpanded" x-collapse>
+                            <div class="bg-white px-5 py-4 prose prose-sm max-w-none
+                                prose-headings:text-slate-900 prose-headings:font-semibold
+                                prose-p:text-slate-700 prose-li:text-slate-700
+                                prose-code:text-blue-700 prose-code:bg-slate-100
+                                prose-code:px-1 prose-code:rounded prose-code:font-mono
+                                prose-code:text-[12px] prose-strong:text-slate-900"
+                                x-html="renderMarkdown(plan.content)">
+                            </div>
+
+                            <div x-show="artifactError" x-text="artifactError"
+                                class="px-4 py-2 bg-red-50 border-t border-red-200 text-[12px] text-red-700 font-mono">
+                            </div>
+
+                            <!-- DRAFT -->
+                            <template x-if="plan.status === 'DRAFT'">
+                                <div
+                                    class="px-4 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3">
+                                    <p class="text-[11px] text-slate-500 italic">
+                                        Review the plan before implementing. Approving unlocks the implementer.
+                                    </p>
+                                    <div class="flex items-center gap-2">
+                                        <button type="button" @click="rejectPlan()" :disabled="busy()"
+                                            class="h-8 px-3 rounded-md bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] transition">
+                                            Reject
+                                        </button>
+                                        <button type="button" @click="approvePlan()" :disabled="busy()"
+                                            class="h-8 px-4 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
+                                            <span class="material-symbols-outlined text-[14px]">check</span>
+                                            Approve
+                                        </button>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- APPROVED -->
+                            <template x-if="plan.status === 'APPROVED'">
+                                <div
+                                    class="px-4 py-3 bg-emerald-50 border-t border-emerald-200 flex items-center justify-between gap-3">
+                                    <p class="text-[11px] text-emerald-800">
+                                        Plan approved. Ready to run the implementer.
+                                    </p>
+                                    <button type="button" @click="runImplementer()" :disabled="busy()"
+                                        class="h-8 px-4 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition"
+                                        style="min-width: 180px; justify-content: center;">
+                                        <span class="material-symbols-outlined text-[14px]"
+                                            :class="pendingIs('Implement') ? 'animate-spin' : ''"
+                                            x-text="pendingIs('Implement') ? 'autorenew' : 'build'"></span>
+                                        <span
+                                            x-text="pendingIs('Implement') ? 'Implementing...' : 'Run Implementer'"></span>
+                                    </button>
+                                </div>
+                            </template>
+
+                            <!-- REJECTED -->
+                            <template x-if="plan.status === 'REJECTED'">
+                                <div
+                                    class="px-4 py-3 bg-red-50 border-t border-red-200 flex items-center justify-between gap-3">
+                                    <p class="text-[11px] text-red-800">
+                                        Plan rejected. Generate a new one to try again.
+                                    </p>
+                                    <button type="button" @click="generatePlan()" :disabled="busy()"
+                                        class="h-8 px-4 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
+                                        <span class="material-symbols-outlined text-[14px]"
+                                            x-show="!generatingPlan">refresh</span>
+                                        <span class="material-symbols-outlined text-[14px] animate-spin"
+                                            x-show="generatingPlan">autorenew</span>
+                                        <span x-text="generatingPlan ? 'Regenerating...' : 'Regenerate Plan'"></span>
+                                    </button>
+                                </div>
+                            </template>
+
+                            <!-- EXECUTED -->
+                            <template x-if="plan.status === 'EXECUTED'">
+                                <div
+                                    class="px-4 py-3 bg-blue-50 border-t border-blue-200 flex items-center justify-between gap-3">
+                                    <p class="text-[11px] text-blue-800">
+                                        Plan has been executed.
+                                    </p>
+                                    <button type="button" @click="runImplementer()" :disabled="busy()"
+                                        class="h-8 px-4 rounded-md bg-white border border-blue-300 text-blue-700 hover:bg-blue-100 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 transition">
+                                        <span class="material-symbols-outlined text-[14px]"
+                                            :class="pendingIs('Implement') ? 'animate-spin' : ''"
+                                            x-text="pendingIs('Implement') ? 'autorenew' : 'refresh'"></span>
+                                        <span
+                                            x-text="pendingIs('Implement') ? 'Re-implementing...' : 'Re-run Implementer'"></span>
+                                    </button>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Review card -->
+                <template x-if="session && session.stage === 'IMPLEMENTATION_READY'">
+                    <div class="rounded-xl border shadow-sm overflow-hidden"
+                        :class="review ? verdictBadge(review.verdict) : 'border-slate-200 bg-white'">
+
+                        <div class="px-4 py-2.5 flex items-center justify-between gap-3 border-b"
+                            :class="review ? verdictBadge(review.verdict) : 'bg-slate-50 border-slate-200'">
+                            <div class="flex items-center gap-2 min-w-0">
+                                <span class="material-symbols-outlined text-[16px]">rule</span>
+                                <span class="text-[13px] font-semibold">Code Review</span>
+                                <span x-show="review" class="text-[10px] font-mono text-slate-500"
+                                    x-text="review ? review.shortId : ''"></span>
+                            </div>
+                            <div class="flex items-center gap-2" x-show="review">
+                                <span
+                                    class="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/60 border"
+                                    :class="verdictBadge(review?.verdict)" x-text="review?.verdict || 'PENDING'"></span>
+                                <span class="text-[10px] text-slate-500"
+                                    x-text="review ? ('by ' + review.createdBy) : ''"></span>
+                                <a :href="'/artifact/' + review.id + '/download'"
+                                    class="h-6 w-6 rounded flex items-center justify-center text-slate-500 hover:text-blue-700 hover:bg-white/60 transition"
+                                    title="Download review as markdown">
+                                    <span class="material-symbols-outlined text-[14px]">download</span>
+                                </a>
+                            </div>
+                        </div>
+
+                        <template x-if="review">
+                            <div class="bg-white px-5 py-4 prose prose-sm max-w-none
+                                prose-headings:text-slate-900 prose-headings:font-semibold
+                                prose-p:text-slate-700 prose-li:text-slate-700
+                                prose-code:text-blue-700 prose-code:bg-slate-100
+                                prose-code:px-1 prose-code:rounded prose-code:font-mono
+                                prose-code:text-[12px] prose-strong:text-slate-900"
+                                x-html="renderMarkdown(review.content)">
+                            </div>
+                        </template>
+
+                        <template x-if="!review">
+                            <div class="px-5 py-4 text-[13px] text-slate-600">
+                                The implementer produced a diff. Generate a review to have
+                                <span class="font-medium text-slate-800">dwight</span> audit it before you apply.
+                            </div>
+                        </template>
+
+                        <div x-show="artifactError" x-text="artifactError"
+                            class="px-4 py-2 bg-red-50 border-t border-red-200 text-[12px] text-red-700 font-mono">
+                        </div>
+
+                        <div class="px-4 py-3 border-t bg-slate-50 flex items-center justify-between gap-3">
+                            <p class="text-[11px] text-slate-500 italic">
+                                <span x-show="!review">Review the diff before applying.</span>
+                                <span x-show="review && review?.verdict === 'APPROVE'">
+                                    Review passed. Ready to apply.
+                                </span>
+                                <span x-show="review && review?.verdict && review?.verdict !== 'APPROVE'">
+                                    Review found issues. Re-implement with the feedback.
+                                </span>
+                            </p>
+
+                            <div class="flex items-center gap-2">
+                                <button x-show="!review" type="button" @click="generateReview()" :disabled="busy()"
+                                    class="h-8 px-4 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
+                                    <span class="material-symbols-outlined text-[14px]"
+                                        :class="pendingIs('Review') ? 'animate-spin' : ''"
+                                        x-text="pendingIs('Review') ? 'autorenew' : 'rule'"></span>
+                                    <span x-text="pendingIs('Review') ? 'Reviewing...' : 'Generate Review'"></span>
+                                </button>
+
+                                <button x-show="review && review?.verdict && review?.verdict !== 'APPROVE'"
+                                    type="button" @click="reimplement()" :disabled="busy()"
+                                    class="h-8 px-4 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
+                                    <span class="material-symbols-outlined text-[14px]"
+                                        :class="pendingIs('Implement') ? 'animate-spin' : ''"
+                                        x-text="pendingIs('Implement') ? 'autorenew' : 'refresh'"></span>
+                                    <span
+                                        x-text="pendingIs('Implement') ? 'Re-implementing...' : 'Re-implement with Feedback'"></span>
+                                </button>
+
+                                <a :href="'/code-preview?session=' + session.sessionId"
+                                    class="h-8 px-4 rounded-md bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium text-[12px] flex items-center gap-1.5 transition">
+                                    <span class="material-symbols-outlined text-[14px]">difference</span>
+                                    Review Diff
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <!-- ============================================================
+         RIGHT COLUMN
+         ============================================================ -->
+            <div class="col-span-1 space-y-5">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
+                    <div class="flex items-center gap-2">
+                        <span class="material-symbols-outlined text-blue-600 text-[18px]">memory</span>
+                        <h3 class="text-[14px] font-semibold text-slate-900">Token Pipeline</h3>
+                    </div>
+
+                    <div class="rounded-lg bg-slate-50 p-3 space-y-1">
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                            <span class="text-[12px] font-medium text-slate-800">Prompt Caching</span>
+                        </div>
+                        <p class="text-[11px] text-slate-500 leading-relaxed">
+                            Configured on every call. Activates once the system prompt exceeds ~1024 tokens.
+                        </p>
+                    </div>
+
+                    <div class="rounded-lg bg-slate-50 p-3 space-y-1 opacity-70">
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                            <span class="text-[12px] font-medium text-slate-700">Retrieval Trimming</span>
+                        </div>
+                        <p class="text-[11px] text-slate-500 leading-relaxed">
+                            Planned for Phase 3. Trims retrieved code chunks to fit the token budget.
+                        </p>
+                    </div>
+
+                    <div class="pt-1 flex justify-end">
+                        <a th:href="@{/token-tracker}"
+                            class="inline-flex items-center gap-1 text-[13px] font-medium text-blue-700 hover:text-blue-800 transition">
+                            View Token Tracker
+                            <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+                        </a>
+                    </div>
+                </div>
+            </div> <!-- closes the new grid wrapper -->
+        </div> <!-- closes col-span-1 -->
+
+        <!-- Alpine component -->
+        <script>
+            function pipelinePage() {
+                return {
+                    // --- core state ---
+                    story: '',
+                    running: false,
+                    submitting: false,
+                    implementing: false,
+                    generatingPlan: false,
+                    generatingReview: false,
+                    reimplementing: false,
+                    session: null,
+                    answers: {},
+                    additionalContext: '',
+                    error: '',
+                    copied: false,
+                    previewOpen: false,
+
+                    // --- artifact state ---
+                    artifacts: [],
+                    plan: null,
+                    review: null,
+                    planExpanded: true,
+                    artifactError: '',
+                    recent: [],
+
+                    init() {
+                        const params = new URLSearchParams(window.location.search);
+                        const id = params.get('session') || localStorage.getItem('relay.lastSessionId');
+                        if (id) this.restoreLastSession(id);
+                    },
+
+                    // --- local stage getter (no store dependency) ---
+                    get stages() {
+                        const ORDER = ['Clarify', 'Plan', 'Approve', 'Implement', 'Review', 'Apply'];
+                        const mk = (name, state) => ({ name, state });
+                        const stagesFor = (step) => {
+                            const idx = ORDER.indexOf(step);
+                            if (idx < 0) return ORDER.map(n => mk(n, 'queued'));
+                            return ORDER.map((name, i) =>
+                                mk(name, i < idx ? 'done' : (i === idx ? 'active' : 'queued')));
                         };
-                        const res = await fetch('/pipeline/clarify/resume', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
-                        const data = await res.json();
-                        if (!res.ok) throw new Error(data.error || 'Resume failed');
-                        this.setSession(data);
-                        this.answers = {};
-                        this.additionalContext = '';
-                    } catch (e) {
-                        this.error = e.message;
-                    } finally {
-                        this.submitting = false;
-                    }
-                },
 
-                async loadRecent() {
-                    try {
-                        const res = await fetch('/pipeline/sessions?limit=20');
-                        if (!res.ok) return;
-                        this.recent = await res.json();
-                    } catch (_) {
-                        this.recent = [];
-                    }
-                },
+                        const stage = this.session?.stage || 'NEW';
 
-                async loadSession(id) {
-                    this.error = '';
-                    try {
-                        const res = await fetch('/pipeline/session/' + id);
-                        if (!res.ok) throw new Error('Session not found');
-                        this.setSession(await res.json());
-                        const url = new URL(window.location.href);
-                        url.searchParams.set('session', id);
-                        window.history.replaceState({}, '', url);
-                    } catch (e) {
-                        this.error = e.message;
-                    }
-                },
+                        // Explicit terminal/waiting cases first
+                        if (stage === 'BLOCKED' || stage === 'CAPPED' || stage === 'ERROR'
+                            || stage === 'IMPLEMENTATION_FAILED') {
+                            return [
+                                mk('Clarify', 'done'),
+                                mk('Plan', 'done'),
+                                mk('Approve', 'done'),
+                                mk('Implement', 'active'),
+                                mk('Review', 'queued'),
+                                mk('Apply', 'queued')
+                            ];
+                        }
+                        if (stage === 'APPLIED') {
+                            return ORDER.map(n => mk(n, 'done'));
+                        }
+                        if (stage === 'AWAITING_ANSWERS' || stage === 'NEW') {
+                            return stagesFor('Clarify');
+                        }
 
-                async loadArtifacts() {
-                    this.artifacts = [];
-                    this.plan = null;
-                    this.review = null;
-                    if (!this.session) return;
-                    try {
-                        const res = await fetch('/pipeline/' + this.session.sessionId + '/artifacts');
-                        if (!res.ok) return;
-                        const list = await res.json();
-                        this.artifacts = list;
-                        const plans = list.filter(a => a.kind === 'PLAN');
-                        this.plan = plans.length > 0 ? plans[plans.length - 1] : null;
-                        const reviews = list.filter(a => a.kind === 'REVIEW');
-                        this.review = reviews.length > 0 ? reviews[0] : null;
+                        // Refine by artifact state
+                        if (this.plan && this.plan.status === 'DRAFT') {
+                            return stagesFor('Approve');     // waiting for user approval
+                        }
+                        if (this.plan && this.plan.status === 'APPROVED') {
+                            return stagesFor('Implement');   // ready to run
+                        }
+                        if (this.plan && this.plan.status === 'EXECUTED') {
+                            if (!this.review) return stagesFor('Review');       // awaiting review
+                            if (this.review.verdict === 'APPROVE') return stagesFor('Apply');
+                            return stagesFor('Implement');   // request_changes → back to implement
+                        }
 
-                        this.planExpanded = !this.review;
-                    } catch (_) { }
-                },
+                        // Session reached READY_TO_IMPLEMENT but no plan yet
+                        if (stage === 'READY_TO_IMPLEMENT') {
+                            return stagesFor('Plan');
+                        }
+                        if (stage === 'IMPLEMENTATION_RUNNING') {
+                            return stagesFor('Implement');
+                        }
 
-                async generatePlan() {
-                    if (!this.session || this.generatingPlan) return;
-                    this.generatingPlan = true;
-                    this.artifactError = '';
-                    try {
-                        const res = await fetch(
-                            '/pipeline/' + this.session.sessionId + '/artifact/plan',
-                            { method: 'POST' });
-                        const data = await res.json();
-                        if (!res.ok) throw new Error(data.error || 'Failed to generate plan');
-                        this.planExpanded = true;
-                        await this.loadArtifacts();
-                    } catch (e) {
-                        this.artifactError = e.message;
-                    } finally {
-                        this.generatingPlan = false;
-                    }
-                },
+                        return stagesFor('Clarify');
+                    },
 
-                async approvePlan() {
-                    if (!this.plan) return;
-                    this.artifactError = '';
-                    try {
-                        const res = await fetch('/artifact/' + this.plan.id + '/approve',
-                            { method: 'POST' });
-                        const data = await res.json();
-                        if (!res.ok) throw new Error(data.error || 'Approve failed');
-                        await this.loadArtifacts();
-                    } catch (e) {
-                        this.artifactError = e.message;
-                    }
-                },
+                    get syntaxLabel() {
+                        if (!this.story.trim()) return 'Empty';
+                        if (this.story.length < 20) return 'Brief';
+                        return 'Clean spec';
+                    },
 
-                async rejectPlan() {
-                    if (!this.plan) return;
-                    this.artifactError = '';
-                    try {
-                        const res = await fetch('/artifact/' + this.plan.id + '/reject',
-                            { method: 'POST' });
-                        const data = await res.json();
-                        if (!res.ok) throw new Error(data.error || 'Reject failed');
-                        await this.loadArtifacts();
-                    } catch (e) {
-                        this.artifactError = e.message;
-                    }
-                },
+                    get allAnswered() {
+                        if (!this.session || !this.session.questions) return false;
+                        return this.session.questions.every(q => (this.answers[q.id] || '').trim().length > 0);
+                    },
 
-                async generateReview() {
-                    if (!this.session || this.generatingReview) return;
-                    this.generatingReview = true;
-                    this.artifactError = '';
-                    try {
-                        const res = await fetch(
-                            '/pipeline/' + this.session.sessionId + '/artifact/review',
-                            { method: 'POST' });
-                        const data = await res.json();
-                        if (!res.ok) throw new Error(data.error || 'Failed to generate review');
-                        await this.loadArtifacts();
-                    } catch (e) {
-                        this.artifactError = e.message;
-                    } finally {
-                        this.generatingReview = false;
-                    }
-                },
+                    // --- busy/pending helpers ---
+                    busy() {
+                        return this.running || this.submitting || this.implementing
+                            || this.generatingPlan || this.generatingReview || this.reimplementing;
+                    },
 
-                async reimplement() {
-                    if (!this.session || this.reimplementing) return;
-                    this.reimplementing = true;
-                    this.artifactError = '';
-                    if (window.Alpine?.store('session')) {
-                        Alpine.store('session').setPending('Compile');
-                    }
-                    try {
-                        const res = await fetch(
-                            '/pipeline/' + this.session.sessionId + '/reimplement',
-                            { method: 'POST' });
-                        const data = await res.json();
-                        if (!res.ok) throw new Error(data.error || 'Re-implementation failed');
-                        this.review = null;
-                        this.reimplementing = false;
-                        this.pollForDiff();
-                    } catch (e) {
-                        this.artifactError = e.message;
-                        this.reimplementing = false;
-                    }
-                },
+                    pendingIs(step) {
+                        if (window.Alpine?.store('session')) {
+                            return Alpine.store('session').pending === step;
+                        }
+                        return false;
+                    },
 
-                async runImplementer() {
-                    if (!this.session || this.implementing) return;
-                    this.implementing = true;
-                    this.error = '';
-                    if (window.Alpine?.store('session')) {
-                        Alpine.store('session').setPending('Compile');
-                    }
-                    try {
-                        const res = await fetch('/pipeline/implement', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ sessionId: this.session.sessionId })
-                        });
-                        const data = await res.json();
-                        if (!res.ok) throw new Error(data.error || 'Implementer failed to start');
-                        this.pollForDiff();
-                    } catch (e) {
-                        this.error = e.message;
-                        this.implementing = false;
-                    }
-                },
+                    setPending(step) {
+                        if (window.Alpine?.store('session')) {
+                            Alpine.store('session').setPending(step);
+                        }
+                    },
 
-                pollForDiff() {
-                    const id = this.session.sessionId;
-                    const started = Date.now();
-                    const timer = setInterval(async () => {
+                    clearPending() {
+                        if (window.Alpine?.store('session')) {
+                            Alpine.store('session').setPending(null);
+                        }
+                    },
+
+                    renderInline(text) {
+                        if (!text) return '';
+                        const escaped = text
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;');
+                        return escaped.replace(/`([^`]+)`/g,
+                            '<code class="px-1 py-0.5 rounded bg-slate-200 text-slate-800 font-mono text-[11px]">$1</code>');
+                    },
+
+                    renderMarkdown(text) {
+                        if (!text) return '';
+                        try {
+                            return marked.parse(text);
+                        } catch (e) {
+                            return '<pre>' + text.replace(/</g, '&lt;') + '</pre>';
+                        }
+                    },
+
+                    async restoreLastSession(id) {
                         try {
                             const res = await fetch('/pipeline/session/' + id);
+                            if (!res.ok) {
+                                this.error = 'Session not found: ' + id.slice(0, 8);
+                                localStorage.removeItem('relay.lastSessionId');
+                                return;
+                            }
+                            this.setSession(await res.json());
+                        } catch (e) {
+                            this.error = 'Failed to load session: ' + e.message;
+                        }
+                    },
+
+                    setSession(s) {
+                        this.session = s;
+                        this.clearPending();
+                        if (window.Alpine && Alpine.store('session')) {
+                            Alpine.store('session').setSession(s);
+                        }
+                        if (s && s.sessionId) {
+                            localStorage.setItem('relay.lastSessionId', s.sessionId);
+                        }
+                        this.loadArtifacts();
+                    },
+
+                    loadSample() {
+                        const samples = [
+                            'feat(auth): Add biometric passkey authentication fallback with rate limiting on failed attempts',
+                            'fix(router): Resolve race condition during parallel pipeline stage compilation',
+                            'refactor(db): Migrate session credential metadata to Redis with automatic TTL',
+                            'perf(compiler): Parallel AST symbol resolution for monorepo dependency graphs'
+                        ];
+                        const current = this.story;
+                        const idx = samples.indexOf(current);
+                        this.story = samples[(idx + 1) % samples.length];
+                    },
+
+                    async startClarification() {
+                        if (!this.story.trim() || this.running) return;
+                        this.running = true;
+                        this.error = '';
+                        this.setPending('Clarify');
+                        try {
+                            const res = await fetch('/pipeline/clarify', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ story: this.story })
+                            });
                             const data = await res.json();
-                            if (data.stage === 'IMPLEMENTATION_READY'
+                            if (!res.ok) throw new Error(data.error || 'Failed to start session');
+                            this.setSession(data);
+                            this.answers = {};
+                            this.additionalContext = '';
+                        } catch (e) {
+                            this.error = e.message;
+                        } finally {
+                            this.running = false;
+                            this.clearPending();
+                        }
+                    },
+
+                    async submitAnswers() {
+                        if (!this.session || this.submitting) return;
+                        this.submitting = true;
+                        this.error = '';
+                        this.setPending('Plan');
+                        try {
+                            const payload = {
+                                sessionId: this.session.sessionId,
+                                answers: Object.entries(this.answers).map(([qid, ans]) => ({
+                                    questionId: qid,
+                                    answer: ans
+                                })),
+                                additionalContext: this.additionalContext
+                            };
+                            const res = await fetch('/pipeline/clarify/resume', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error || 'Resume failed');
+                            this.setSession(data);
+                            this.answers = {};
+                            this.additionalContext = '';
+                        } catch (e) {
+                            this.error = e.message;
+                        } finally {
+                            this.submitting = false;
+                            this.clearPending();
+                        }
+                    },
+
+                    async loadRecent() {
+                        try {
+                            const res = await fetch('/pipeline/sessions?limit=20');
+                            if (!res.ok) return;
+                            this.recent = await res.json();
+                        } catch (_) {
+                            this.recent = [];
+                        }
+                    },
+
+                    async loadSession(id) {
+                        this.error = '';
+                        try {
+                            const res = await fetch('/pipeline/session/' + id);
+                            if (!res.ok) throw new Error('Session not found');
+                            this.setSession(await res.json());
+                            const url = new URL(window.location.href);
+                            url.searchParams.set('session', id);
+                            window.history.replaceState({}, '', url);
+                        } catch (e) {
+                            this.error = e.message;
+                        }
+                    },
+
+                    async loadArtifacts() {
+                        this.artifacts = [];
+                        this.plan = null;
+                        this.review = null;
+                        if (!this.session) return;
+                        try {
+                            const res = await fetch('/pipeline/' + this.session.sessionId + '/artifacts');
+                            if (!res.ok) return;
+                            const list = await res.json();
+                            this.artifacts = list;
+                            const plans = list.filter(a => a.kind === 'PLAN');
+                            this.plan = plans.length > 0 ? plans[plans.length - 1] : null;
+                            const reviews = list.filter(a => a.kind === 'REVIEW');
+                            this.review = reviews.length > 0 ? reviews[0] : null;
+                            this.planExpanded = !this.review;
+                        } catch (_) { }
+                    },
+
+                    async generatePlan() {
+                        if (!this.session || this.generatingPlan) return;
+                        this.generatingPlan = true;
+                        this.artifactError = '';
+                        this.setPending('Plan');
+                        try {
+                            const res = await fetch(
+                                '/pipeline/' + this.session.sessionId + '/artifact/plan',
+                                { method: 'POST' });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error || 'Failed to generate plan');
+                            this.planExpanded = true;
+                            await this.loadArtifacts();
+                        } catch (e) {
+                            this.artifactError = e.message;
+                        } finally {
+                            this.generatingPlan = false;
+                            this.clearPending();
+                        }
+                    },
+
+                    async approvePlan() {
+                        if (!this.plan) return;
+                        this.artifactError = '';
+                        try {
+                            const res = await fetch('/artifact/' + this.plan.id + '/approve',
+                                { method: 'POST' });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error || 'Approve failed');
+                            await this.loadArtifacts();
+                        } catch (e) {
+                            this.artifactError = e.message;
+                        }
+                    },
+
+                    async rejectPlan() {
+                        if (!this.plan) return;
+                        this.artifactError = '';
+                        try {
+                            const res = await fetch('/artifact/' + this.plan.id + '/reject',
+                                { method: 'POST' });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error || 'Reject failed');
+                            await this.loadArtifacts();
+                        } catch (e) {
+                            this.artifactError = e.message;
+                        }
+                    },
+
+                    async generateReview() {
+                        if (!this.session || this.generatingReview) return;
+                        this.generatingReview = true;
+                        this.artifactError = '';
+                        this.setPending('Review');
+                        try {
+                            const res = await fetch(
+                                '/pipeline/' + this.session.sessionId + '/artifact/review',
+                                { method: 'POST' });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error || 'Failed to generate review');
+                            await this.loadArtifacts();
+                        } catch (e) {
+                            this.artifactError = e.message;
+                        } finally {
+                            this.generatingReview = false;
+                            this.clearPending();
+                        }
+                    },
+
+                    async reimplement() {
+                        if (!this.session || this.reimplementing) return;
+                        this.reimplementing = true;
+                        this.artifactError = '';
+                        this.setPending('Implement');
+                        try {
+                            const res = await fetch(
+                                '/pipeline/' + this.session.sessionId + '/reimplement',
+                                { method: 'POST' });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error || 'Re-implementation failed');
+                            this.review = null;
+                            this.reimplementing = false;
+                            this.pollForDiff();
+                        } catch (e) {
+                            this.artifactError = e.message;
+                            this.reimplementing = false;
+                            this.clearPending();
+                        }
+                    },
+
+                    async runImplementer() {
+                        if (!this.session || this.implementing) return;
+                        this.implementing = true;
+                        this.error = '';
+                        this.setPending('Implement');
+                        try {
+                            const res = await fetch('/pipeline/implement', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ sessionId: this.session.sessionId })
+                            });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error || 'Implementer failed to start');
+                            this.pollForDiff();
+                        } catch (e) {
+                            this.error = e.message;
+                            this.implementing = false;
+                            this.clearPending();
+                        }
+                    },
+
+                    pollForDiff() {
+                        const id = this.session.sessionId;
+                        const started = Date.now();
+                        const timer = setInterval(async () => {
+                            try {
+                                const res = await fetch('/pipeline/session/' + id);
+                                const data = await res.json();
+                                if (data.stage === 'IMPLEMENTATION_READY'
                                     || data.stage === 'IMPLEMENTATION_FAILED') {
+                                    clearInterval(timer);
+                                    this.implementing = false;
+                                    this.reimplementing = false;
+                                    this.setSession(data);
+                                }
+                            } catch (_) { }
+                            if (Date.now() - started > 10 * 60 * 1000) {
                                 clearInterval(timer);
                                 this.implementing = false;
                                 this.reimplementing = false;
-                                this.setSession(data);
+                                this.error = 'Implementer timed out. Check the live log.';
+                                this.clearPending();
                             }
-                        } catch (_) {}
-                        if (Date.now() - started > 10 * 60 * 1000) {
-                            clearInterval(timer);
-                            this.implementing = false;
-                            this.reimplementing = false;
-                            this.error = 'Implementer timed out. Check the live log.';
+                        }, 3000);
+                    },
+
+                    copySessionId() {
+                        if (!this.session) return;
+                        if (navigator.clipboard) navigator.clipboard.writeText(this.session.sessionId);
+                        this.copied = true;
+                        setTimeout(() => this.copied = false, 1500);
+                    },
+
+                    reset() {
+                        this.setSession(null);
+                        this.story = '';
+                        this.answers = {};
+                        this.additionalContext = '';
+                        this.error = '';
+                        this.artifactError = '';
+                        this.previewOpen = false;
+                        this.planExpanded = true;
+                        localStorage.removeItem('relay.lastSessionId');
+                    },
+
+                    stageBadgeClass(stage) {
+                        switch (stage) {
+                            case 'AWAITING_ANSWERS': return 'bg-blue-50 text-blue-700 border-blue-200';
+                            case 'READY_TO_IMPLEMENT': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                            case 'IMPLEMENTATION_RUNNING': return 'bg-blue-50 text-blue-700 border-blue-200';
+                            case 'IMPLEMENTATION_READY': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                            case 'IMPLEMENTATION_FAILED': return 'bg-red-50 text-red-700 border-red-200';
+                            case 'APPLIED': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                            case 'BLOCKED': return 'bg-red-50 text-red-700 border-red-200';
+                            case 'CAPPED': return 'bg-amber-50 text-amber-700 border-amber-200';
+                            default: return 'bg-slate-50 text-slate-600 border-slate-200';
                         }
-                    }, 3000);
-                },
+                    },
 
-                copySessionId() {
-                    if (!this.session) return;
-                    if (navigator.clipboard) navigator.clipboard.writeText(this.session.sessionId);
-                    this.copied = true;
-                    setTimeout(() => this.copied = false, 1500);
-                },
+                    planStatusBadge(status) {
+                        switch (status) {
+                            case 'DRAFT': return 'bg-amber-50 text-amber-700 border-amber-200';
+                            case 'APPROVED': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                            case 'REJECTED': return 'bg-red-50 text-red-700 border-red-200';
+                            case 'EXECUTED': return 'bg-blue-50 text-blue-700 border-blue-200';
+                            default: return 'bg-slate-100 text-slate-600 border-slate-200';
+                        }
+                    },
 
-                reset() {
-                    this.setSession(null);
-                    this.story = '';
-                    this.answers = {};
-                    this.additionalContext = '';
-                    this.error = '';
-                    this.artifactError = '';
-                    this.previewOpen = false;
-                    this.planExpanded = true;
-                    localStorage.removeItem('relay.lastSessionId');
-                },
-
-                stageBadgeClass(stage) {
-                    switch (stage) {
-                        case 'AWAITING_ANSWERS': return 'bg-blue-50 text-blue-700 border-blue-200';
-                        case 'READY_TO_IMPLEMENT': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                        case 'IMPLEMENTATION_RUNNING': return 'bg-blue-50 text-blue-700 border-blue-200';
-                        case 'IMPLEMENTATION_READY': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                        case 'IMPLEMENTATION_FAILED': return 'bg-red-50 text-red-700 border-red-200';
-                        case 'BLOCKED': return 'bg-red-50 text-red-700 border-red-200';
-                        case 'CAPPED': return 'bg-amber-50 text-amber-700 border-amber-200';
-                        default: return 'bg-slate-50 text-slate-600 border-slate-200';
+                    verdictBadge(verdict) {
+                        switch ((verdict || '').toUpperCase()) {
+                            case 'APPROVE': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                            case 'REQUEST_CHANGES': return 'bg-red-50 text-red-700 border-red-200';
+                            case 'COMMENT': return 'bg-amber-50 text-amber-700 border-amber-200';
+                            default: return 'bg-slate-100 text-slate-600 border-slate-200';
+                        }
                     }
-                },
+                };
+            }
+        </script>
 
-                planStatusBadge(status) {
-                    switch (status) {
-                        case 'DRAFT':    return 'bg-amber-50 text-amber-700 border-amber-200';
-                        case 'APPROVED': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                        case 'REJECTED': return 'bg-red-50 text-red-700 border-red-200';
-                        case 'EXECUTED': return 'bg-blue-50 text-blue-700 border-blue-200';
-                        default:         return 'bg-slate-100 text-slate-600 border-slate-200';
-                    }
-                },
-
-                verdictBadge(verdict) {
-                    switch ((verdict || '').toUpperCase()) {
-                        case 'APPROVE':         return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                        case 'REQUEST_CHANGES': return 'bg-red-50 text-red-700 border-red-200';
-                        case 'COMMENT':         return 'bg-amber-50 text-amber-700 border-amber-200';
-                        default:                return 'bg-slate-100 text-slate-600 border-slate-200';
-                    }
-                }
-            };
-        }
-    </script>
-
-    <style>
-        [x-cloak] { display: none !important; }
-    </style>
-</div>
+        <style>
+            [x-cloak] {
+                display: none !important;
+            }
+        </style>
+    </div>
 </body>
 
 </html>

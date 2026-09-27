@@ -44,11 +44,12 @@ public class PlanExecutor implements Executor {
 
     @Override
     public boolean execute(Artifact artifact, PipelineSession session) {
-        if (!artifact.isApproved()) {
-            log.warn("Refusing to execute non-approved artifact {}", artifact.id());
+        if (!artifact.isApproved() && !artifact.isExecuted()) {
+            log.warn("Refusing to execute artifact {} in status {}",
+                    artifact.id(), artifact.status());
             logBroadcaster.publish(LogEvent.error(
                     "[EXECUTOR] Artifact " + artifact.shortId()
-                            + " is not APPROVED (status=" + artifact.status() + ")"));
+                            + " is not APPROVED or EXECUTED (status=" + artifact.status() + ")"));
             return false;
         }
 
@@ -75,8 +76,11 @@ public class PlanExecutor implements Executor {
             PipelineSession session,
             String reviewFeedback) {
         if (!plan.isApproved() && !plan.isExecuted()) {
-            log.warn("Refusing to re-implement: plan is {} (expected APPROVED or EXECUTED)",
-                    plan.status());
+            log.warn("Refusing to execute artifact {} in status {}",
+                    plan.id(), plan.status());
+            logBroadcaster.publish(LogEvent.error(
+                    "[EXECUTOR] Artifact " + plan.shortId()
+                            + " is not APPROVED or EXECUTED (status=" + plan.status() + ")"));
             return false;
         }
         try {

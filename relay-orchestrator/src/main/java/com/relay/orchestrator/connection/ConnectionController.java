@@ -15,6 +15,8 @@ import com.relay.orchestrator.pipeline.ClarificationLoopService;
 import com.relay.orchestrator.pipeline.PipelineSession;
 import com.relay.orchestrator.pipeline.PipelineStage;
 import com.relay.orchestrator.pipeline.impl.ImplementationResult;
+import com.relay.orchestrator.pipeline.impl.ApplyResult;
+import com.relay.orchestrator.pipeline.impl.ApplyService;
 import com.relay.orchestrator.pipeline.impl.ImplementerService;
 import com.relay.orchestrator.retrieval.ChunkRepository;
 import com.relay.orchestrator.retrieval.RetrievalService;
@@ -59,6 +61,7 @@ public class ConnectionController {
     private final ArtifactStore artifactStore;
     private final ProducerRegistry producerRegistry;
     private final ExecutorRegistry executorRegistry;
+    private final ApplyService applyService;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "connection-test");
@@ -79,7 +82,8 @@ public class ConnectionController {
             ImplementerService implementerService,
             ArtifactStore artifactStore,
             ProducerRegistry producerRegistry,
-            ExecutorRegistry executorRegistry) {
+            ExecutorRegistry executorRegistry,
+            ApplyService applyService) {
         this.configService = configService;
         this.connectionStatusService = connectionStatusService;
         this.copilotConnectionChecker = copilotConnectionChecker;
@@ -94,6 +98,7 @@ public class ConnectionController {
         this.artifactStore = artifactStore;
         this.producerRegistry = producerRegistry;
         this.executorRegistry = executorRegistry;
+        this.applyService = applyService;
     }
 
     @ModelAttribute("config")
@@ -326,7 +331,7 @@ public class ConnectionController {
             return ResponseEntity.badRequest().body(Map.of(
                     "error", "No plan found. Generate and approve a plan first."));
         }
-        if (!plan.isApproved()) {
+        if (!plan.isApproved() && !plan.isExecuted()) {
             return ResponseEntity.badRequest().body(Map.of(
                     "error", "Plan is " + plan.status()
                             + "; approve it before running the implementer."));
@@ -741,5 +746,72 @@ public class ConnectionController {
                 })
                 .orElseGet(() -> ResponseEntity.status(404)
                         .body(Map.of("error", "Artifact not found")));
+    }
+
+    @PostMapping("/pipeline/{sessionId}/apply")
+    @ResponseBody
+    public ResponseEntity<?> applyChanges(@PathVariable String sessionId) {
+        PipelineSession session;
+        try {
+            session = loopService.get(sessionId);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(404).body(Map.of("error", "Session not found"));
+        }
+
+        if (session.stage() != PipelineStage.IMPLEMENTATION_READY) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Session is in stage " + session.stage()
+                            + "; expected IMPLEMENTATION_READY"));
+        }
+
+        ApplyResult result = applyService.apply(session);
+        if (!result.ok()) {
+            logBroadcaster.publish(LogEvent.error("[APPLY] " + result.message()));
+            return ResponseEntity.badRequest().body(Map.of("error", result.message()));
+        }
+
+        PipelineSession updated = session.with(PipelineStage.APPLIED, session.lastResult());
+        loopService.save(updated);
+
+        logBroadcaster.publish(LogEvent.success(
+                "[APPLY] " + result.fileCount() + " file(s) written to disk"));
+
+        return ResponseEntity.ok(Map.of(
+                "status", "applied",
+                "fileCount", result.fileCount(),
+                "backupPath", result.backupPath()));
+    }
+
+    @PostMapping("/pipeline/{sessionId}/undo")
+    @ResponseBody
+    public ResponseEntity<?> undoChanges(@PathVariable String sessionId) {
+        PipelineSession session;
+        try {
+            session = loopService.get(sessionId);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(404).body(Map.of("error", "Session not found"));
+        }
+
+        if (session.stage() != PipelineStage.APPLIED) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Session is in stage " + session.stage()
+                            + "; expected APPLIED"));
+        }
+
+        ApplyResult result = applyService.undo(session);
+        if (!result.ok()) {
+            return ResponseEntity.badRequest().body(Map.of("error", result.message()));
+        }
+
+        PipelineSession updated = session.with(PipelineStage.IMPLEMENTATION_READY, session.lastResult());
+        loopService.save(updated);
+
+        logBroadcaster.publish(LogEvent.warn(
+                "[UNDO] " + result.fileCount() + " file(s) restored from backup"));
+
+        return ResponseEntity.ok(Map.of(
+                "status", "undone",
+                "fileCount", result.fileCount(),
+                "backupPath", result.backupPath()));
     }
 }
