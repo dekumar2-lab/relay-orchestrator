@@ -276,22 +276,136 @@
                                 </div>
                             </div>
 
-                            <div class="flex justify-end">
-                                <button type="button" @click="runImplementer()" :disabled="implementing"
-                                    class="h-9 px-5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed font-medium text-[13px] flex items-center gap-2 transition"
-                                    style="min-width: 220px; justify-content: center;">
-                                    <span class="material-symbols-outlined text-[16px]"
-                                        x-show="!implementing">build</span>
-                                    <span class="material-symbols-outlined text-[16px] animate-spin"
-                                        x-show="implementing">autorenew</span>
-                                    <span x-text="implementing ? 'Implementing...' : 'Run Implementer'"></span>
-                                </button>
+                            <!-- Plan generation (only shown if no plan yet) -->
+                            <template x-if="!plan">
+                                <div class="flex justify-end">
+                                    <button type="button" @click="generatePlan()" :disabled="generatingPlan"
+                                        class="h-9 px-5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[13px] flex items-center gap-2 transition"
+                                        style="min-width: 220px; justify-content: center;">
+                                        <span class="material-symbols-outlined text-[16px]"
+                                            x-show="!generatingPlan">architecture</span>
+                                        <span class="material-symbols-outlined text-[16px] animate-spin"
+                                            x-show="generatingPlan">autorenew</span>
+                                        <span x-text="generatingPlan ? 'Generating plan...' : 'Generate Plan'"></span>
+                                    </button>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                    <!-- Plan card — shows whenever a PLAN artifact exists for this session -->
+                    <template x-if="plan">
+                        <div class="rounded-xl border shadow-sm overflow-hidden" :class="planStatusBadge(plan.status)">
+
+                            <!-- Header -->
+                            <div class="px-4 py-2.5 flex items-center justify-between gap-3 border-b"
+                                :class="planStatusBadge(plan.status)">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <span class="material-symbols-outlined text-[16px]">architecture</span>
+                                    <span class="text-[13px] font-semibold">Implementation Plan</span>
+                                    <span class="text-[10px] font-mono text-slate-500" x-text="plan.shortId"></span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span
+                                        class="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/60 border border-slate-200"
+                                        x-text="plan.status"></span>
+                                    <span class="text-[10px] text-slate-500" x-text="'by ' + plan.createdBy"></span>
+                                </div>
                             </div>
+
+                            <!-- Body: markdown -->
+                            <div class="bg-white px-5 py-4 prose prose-sm max-w-none
+                                        prose-headings:text-slate-900 prose-headings:font-semibold
+                                        prose-p:text-slate-700 prose-li:text-slate-700
+                                        prose-code:text-blue-700 prose-code:bg-slate-100
+                                        prose-code:px-1 prose-code:rounded prose-code:font-mono
+                                        prose-code:text-[12px] prose-strong:text-slate-900"
+                                x-html="renderMarkdown(plan.content)">
+                            </div>
+
+                            <!-- Error -->
+                            <div x-show="artifactError" x-text="artifactError"
+                                class="px-4 py-2 bg-red-50 border-t border-red-200 text-[12px] text-red-700 font-mono">
+                            </div>
+
+                            <!-- Actions (DRAFT only) -->
+                            <template x-if="plan.status === 'DRAFT'">
+                                <div
+                                    class="px-4 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3">
+                                    <p class="text-[11px] text-slate-500 italic">
+                                        Review the plan before implementing. Approving unlocks the implementer.
+                                    </p>
+                                    <div class="flex items-center gap-2">
+                                        <button type="button" @click="rejectPlan()"
+                                            class="h-8 px-3 rounded-md bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium text-[12px] transition">
+                                            Reject
+                                        </button>
+                                        <button type="button" @click="approvePlan()"
+                                            class="h-8 px-4 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
+                                            <span class="material-symbols-outlined text-[14px]">check</span>
+                                            Approve
+                                        </button>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- Actions (APPROVED) -->
+                            <template x-if="plan.status === 'APPROVED'">
+                                <div
+                                    class="px-4 py-3 bg-emerald-50 border-t border-emerald-200 flex items-center justify-between gap-3">
+                                    <p class="text-[11px] text-emerald-800">
+                                        Plan approved. Ready to run the implementer.
+                                    </p>
+                                    <button type="button" @click="runImplementer()" :disabled="implementing"
+                                        class="h-8 px-4 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition"
+                                        style="min-width: 180px; justify-content: center;">
+                                        <span class="material-symbols-outlined text-[14px]"
+                                            x-show="!implementing">build</span>
+                                        <span class="material-symbols-outlined text-[14px] animate-spin"
+                                            x-show="implementing">autorenew</span>
+                                        <span x-text="implementing
+        ? 'Implementing...'
+        : (session?.stage === 'IMPLEMENTATION_READY' ? 'Re-run Implementer' : 'Run Implementer')"></span>
+                                    </button>
+                                </div>
+                            </template>
+
+                            <!-- Actions (REJECTED) -->
+                            <template x-if="plan.status === 'REJECTED'">
+                                <div
+                                    class="px-4 py-3 bg-red-50 border-t border-red-200 flex items-center justify-between gap-3">
+                                    <p class="text-[11px] text-red-800">
+                                        Plan rejected. Generate a new one to try again.
+                                    </p>
+                                    <button type="button" @click="generatePlan()" :disabled="generatingPlan"
+                                        class="h-8 px-4 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
+                                        <span class="material-symbols-outlined text-[14px]"
+                                            x-show="!generatingPlan">refresh</span>
+                                        <span class="material-symbols-outlined text-[14px] animate-spin"
+                                            x-show="generatingPlan">autorenew</span>
+                                        <span x-text="generatingPlan ? 'Regenerating...' : 'Regenerate Plan'"></span>
+                                    </button>
+                                </div>
+                            </template>
+
+                            <!-- Actions (EXECUTED) -->
+                            <template x-if="plan.status === 'EXECUTED'">
+                                <div
+                                    class="px-4 py-3 bg-blue-50 border-t border-blue-200 flex items-center justify-between gap-3">
+                                    <p class="text-[11px] text-blue-800">
+                                        Plan has been executed. Review the diff on the Code Preview page.
+                                    </p>
+                                    <a :href="'/code-preview?session=' + session.sessionId"
+                                        class="h-8 px-4 rounded-md bg-blue-600 text-white hover:bg-blue-700 font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
+                                        <span class="material-symbols-outlined text-[14px]">difference</span>
+                                        Review Diff
+                                    </a>
+                                </div>
+                            </template>
                         </div>
                     </template>
 
-                    <!-- IMPLEMENTATION_RUNNING -->
-                    <template x-if="session && session.stage === 'IMPLEMENTATION_RUNNING'">
+                    <!-- IMPLEMENTATION_RUNNING (only when no plan artifact exists) -->
+                    <template x-if="session && session.stage === 'IMPLEMENTATION_RUNNING' && !plan">
                         <div class="rounded-lg bg-blue-50 border border-blue-200 p-4">
                             <p class="text-[11px] font-semibold uppercase tracking-wider text-blue-800 mb-2">Implementer
                                 running</p>
@@ -300,8 +414,8 @@
                         </div>
                     </template>
 
-                    <!-- IMPLEMENTATION_READY -->
-                    <template x-if="session && session.stage === 'IMPLEMENTATION_READY'">
+                    <!-- IMPLEMENTATION_READY (only when no plan artifact exists) -->
+                    <template x-if="session && session.stage === 'IMPLEMENTATION_READY' && !plan">
                         <div class="space-y-4">
                             <div class="rounded-lg bg-emerald-50 border border-emerald-200 p-4">
                                 <div class="flex items-center gap-2 mb-2">
@@ -416,6 +530,11 @@
                         error: '',
                         copied: false,
                         previewOpen: false,
+                        // --- artifacts state ---
+                        artifacts: [],
+                        plan: null,
+                        generatingPlan: false,
+                        artifactError: '',
 
                         init() {
                             const params = new URLSearchParams(window.location.search);
@@ -647,6 +766,86 @@
                             }
                             if (s && s.sessionId) {
                                 localStorage.setItem('relay.lastSessionId', s.sessionId);
+                            }
+                            this.loadArtifacts();
+                        },
+                        async loadArtifacts() {
+                            this.artifacts = [];
+                            this.plan = null;
+                            if (!this.session) return;
+                            try {
+                                const res = await fetch('/pipeline/' + this.session.sessionId + '/artifacts');
+                                if (!res.ok) return;
+                                const list = await res.json();
+                                this.artifacts = list;
+                                // Latest PLAN is what the UI cares about
+                                const plans = list.filter(a => a.kind === 'PLAN');
+                                this.plan = plans.length > 0 ? plans[plans.length - 1] : null;
+                            } catch (_) { }
+                        },
+
+                        async generatePlan() {
+                            if (!this.session || this.generatingPlan) return;
+                            this.generatingPlan = true;
+                            this.artifactError = '';
+                            try {
+                                const res = await fetch(
+                                    '/pipeline/' + this.session.sessionId + '/artifact/plan',
+                                    { method: 'POST' });
+                                const data = await res.json();
+                                if (!res.ok) throw new Error(data.error || 'Failed to generate plan');
+                                await this.loadArtifacts();
+                            } catch (e) {
+                                this.artifactError = e.message;
+                            } finally {
+                                this.generatingPlan = false;
+                            }
+                        },
+
+                        async approvePlan() {
+                            if (!this.plan) return;
+                            this.artifactError = '';
+                            try {
+                                const res = await fetch('/artifact/' + this.plan.id + '/approve',
+                                    { method: 'POST' });
+                                const data = await res.json();
+                                if (!res.ok) throw new Error(data.error || 'Approve failed');
+                                await this.loadArtifacts();
+                            } catch (e) {
+                                this.artifactError = e.message;
+                            }
+                        },
+
+                        async rejectPlan() {
+                            if (!this.plan) return;
+                            this.artifactError = '';
+                            try {
+                                const res = await fetch('/artifact/' + this.plan.id + '/reject',
+                                    { method: 'POST' });
+                                const data = await res.json();
+                                if (!res.ok) throw new Error(data.error || 'Reject failed');
+                                await this.loadArtifacts();
+                            } catch (e) {
+                                this.artifactError = e.message;
+                            }
+                        },
+
+                        renderMarkdown(text) {
+                            if (!text) return '';
+                            try {
+                                return marked.parse(text);
+                            } catch (e) {
+                                return '<pre>' + text.replace(/</g, '&lt;') + '</pre>';
+                            }
+                        },
+
+                        planStatusBadge(status) {
+                            switch (status) {
+                                case 'DRAFT': return 'bg-amber-50 text-amber-700 border-amber-200';
+                                case 'APPROVED': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                                case 'REJECTED': return 'bg-red-50 text-red-700 border-red-200';
+                                case 'EXECUTED': return 'bg-blue-50 text-blue-700 border-blue-200';
+                                default: return 'bg-slate-100 text-slate-600 border-slate-200';
                             }
                         },
                     };

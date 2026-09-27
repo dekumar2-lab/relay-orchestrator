@@ -66,6 +66,6 @@ public class ConnectionConfig {
     }
 
     public String getProviderSummary() {
-        return provider.getLabel() + " · " + model;
+        return provider.getLabel() + " Â· " + model;
     }
 }

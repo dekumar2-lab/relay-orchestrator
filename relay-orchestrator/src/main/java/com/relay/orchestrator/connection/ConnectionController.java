@@ -1,5 +1,10 @@
 package com.relay.orchestrator.connection;
 
+import com.relay.orchestrator.artifact.Artifact;
+import com.relay.orchestrator.artifact.ArtifactKind;
+import com.relay.orchestrator.artifact.ArtifactStore;
+import com.relay.orchestrator.artifact.Producer;
+import com.relay.orchestrator.artifact.ProducerRegistry;
 import com.relay.orchestrator.logging.LogBroadcaster;
 import com.relay.orchestrator.logging.LogEvent;
 import com.relay.orchestrator.logging.TokenTrackerService;
@@ -47,6 +52,8 @@ public class ConnectionController {
     private final RetrievalService retrievalService;
     private final ChunkRepository chunkRepository;
     private final ImplementerService implementerService;
+    private final ArtifactStore artifactStore;
+    private final ProducerRegistry producerRegistry;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "connection-test");
@@ -64,7 +71,9 @@ public class ConnectionController {
             ClarificationLoopService loopService,
             RetrievalService retrievalService,
             ChunkRepository chunkRepository,
-            ImplementerService implementerService) {
+            ImplementerService implementerService,
+            ArtifactStore artifactStore,
+            ProducerRegistry producerRegistry) {
         this.configService = configService;
         this.connectionStatusService = connectionStatusService;
         this.copilotConnectionChecker = copilotConnectionChecker;
@@ -76,6 +85,8 @@ public class ConnectionController {
         this.retrievalService = retrievalService;
         this.chunkRepository = chunkRepository;
         this.implementerService = implementerService;
+        this.artifactStore = artifactStore;
+        this.producerRegistry = producerRegistry;
     }
 
     @ModelAttribute("config")
@@ -287,10 +298,13 @@ public class ConnectionController {
             return ResponseEntity.status(404).body(Map.of("error", e.getMessage()));
         }
 
-        if (session.stage() != PipelineStage.READY_TO_IMPLEMENT) {
+        PipelineStage stage = session.stage();
+        if (stage != PipelineStage.READY_TO_IMPLEMENT
+                && stage != PipelineStage.IMPLEMENTATION_READY
+                && stage != PipelineStage.IMPLEMENTATION_FAILED) {
             return ResponseEntity.badRequest().body(Map.of(
-                    "error", "Session is in stage " + session.stage()
-                            + "; expected READY_TO_IMPLEMENT"));
+                    "error", "Session is in stage " + stage
+                            + "; cannot run implementer"));
         }
 
         executor.submit(() -> {
@@ -298,6 +312,12 @@ public class ConnectionController {
                 ImplementationResult result = implementerService.implement(session);
                 PipelineSession updated = session.withImplementation(result);
                 loopService.save(updated);
+
+                // Mark the approved plan as EXECUTED so the UI flips the card
+                artifactStore.latestForSession(session.id(), ArtifactKind.PLAN)
+                        .filter(a -> a.isApproved())
+                        .ifPresent(a -> artifactStore.markExecuted(a.id()));
+
             } catch (Exception e) {
                 logBroadcaster.publish(LogEvent.error(
                         "[IMPLEMENTER] Implementation failed: " + e.getMessage()));
@@ -490,5 +510,122 @@ public class ConnectionController {
         return ResponseEntity.accepted().body(Map.of(
                 "status", "queued",
                 "message", "Connection test started. Please watch the live log."));
+    }
+
+    // ==================================================================
+    // ARTIFACT ENDPOINTS
+    // ==================================================================
+
+    /**
+     * Generate an artifact of the given kind for a session.
+     * Path param `kind` accepts: plan, design, rca, review (case-insensitive).
+     */
+    @PostMapping("/pipeline/{sessionId}/artifact/{kind}")
+    @ResponseBody
+    public ResponseEntity<?> generateArtifact(@PathVariable String sessionId,
+            @PathVariable String kind) {
+
+        PipelineSession session;
+        try {
+            session = loopService.get(sessionId);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(404).body(Map.of("error", "Session not found"));
+        }
+
+        ArtifactKind artifactKind;
+        try {
+            artifactKind = ArtifactKind.valueOf(kind.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Unknown artifact kind: " + kind));
+        }
+
+        if (!producerRegistry.has(artifactKind)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "No producer registered for " + artifactKind));
+        }
+
+        try {
+            Producer producer = producerRegistry.forKind(artifactKind);
+            Artifact artifact = producer.produce(session);
+            return ResponseEntity.ok(toArtifactView(artifact));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            logBroadcaster.publish(LogEvent.error(
+                    "Artifact generation failed: " + e.getMessage()));
+            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /** List all artifacts for a session, oldest first. */
+    @GetMapping("/pipeline/{sessionId}/artifacts")
+    @ResponseBody
+    public ResponseEntity<?> listArtifacts(@PathVariable String sessionId) {
+        try {
+            loopService.get(sessionId);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(404).body(Map.of("error", "Session not found"));
+        }
+        return ResponseEntity.ok(
+                artifactStore.findBySession(sessionId).stream()
+                        .map(this::toArtifactView)
+                        .toList());
+    }
+
+    /** Fetch a single artifact by id. */
+    @GetMapping("/artifact/{id}")
+    @ResponseBody
+    public ResponseEntity<?> getArtifact(@PathVariable String id) {
+        return artifactStore.find(id)
+                .<ResponseEntity<?>>map(a -> ResponseEntity.ok(toArtifactView(a)))
+                .orElseGet(() -> ResponseEntity.status(404)
+                        .body(Map.of("error", "Artifact not found")));
+    }
+
+    /** Approve a DRAFT artifact. Only DRAFT → APPROVED transitions succeed. */
+    @PostMapping("/artifact/{id}/approve")
+    @ResponseBody
+    public ResponseEntity<?> approveArtifact(@PathVariable String id) {
+        boolean ok = artifactStore.approve(id, "user");
+        if (!ok) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Artifact not found or not in DRAFT status"));
+        }
+        return artifactStore.find(id)
+                .<ResponseEntity<?>>map(a -> ResponseEntity.ok(toArtifactView(a)))
+                .orElseGet(() -> ResponseEntity.status(500)
+                        .body(Map.of("error", "state desync")));
+    }
+
+    /** Reject a DRAFT artifact. Only DRAFT → REJECTED transitions succeed. */
+    @PostMapping("/artifact/{id}/reject")
+    @ResponseBody
+    public ResponseEntity<?> rejectArtifact(@PathVariable String id) {
+        boolean ok = artifactStore.reject(id);
+        if (!ok) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Artifact not found or not in DRAFT status"));
+        }
+        return artifactStore.find(id)
+                .<ResponseEntity<?>>map(a -> ResponseEntity.ok(toArtifactView(a)))
+                .orElseGet(() -> ResponseEntity.status(500)
+                        .body(Map.of("error", "state desync")));
+    }
+
+    /** Convert an Artifact record to a JSON-friendly view. */
+    private Map<String, Object> toArtifactView(Artifact a) {
+        Map<String, Object> view = new java.util.LinkedHashMap<>();
+        view.put("id", a.id());
+        view.put("shortId", a.shortId());
+        view.put("sessionId", a.sessionId());
+        view.put("kind", a.kind().name());
+        view.put("status", a.status().name());
+        view.put("content", a.content());
+        view.put("createdBy", a.createdBy());
+        view.put("approvedBy", a.approvedBy());
+        view.put("createdAt", a.createdAt().toString());
+        view.put("approvedAt", a.approvedAt() != null ? a.approvedAt().toString() : null);
+        return view;
     }
 }

@@ -4,28 +4,28 @@ workspaceDir: /tmp/workspace
 model: gpt-4o
 requestBudget: 5
 repositories:
-- id: backend
-  path: D:\Deepak\Learning\Agentic AI\Relay\backend
-  sourceType: LOCAL_PATH
-  status: INDEXED
-  lastIndexed: '2026-09-26T02:31:55.2461257'
-- id: relay-orchestrator
-  path: D:\Deepak\Learning\Agentic AI\Relay\relay-orchestrator
-  sourceType: LOCAL_PATH
-  status: INDEXED
-  lastIndexed: '2026-09-26T14:24:17.9505759'
+  - id: backend
+    path: D:\Deepak\Learning\Agentic AI\Relay\backend
+    sourceType: LOCAL_PATH
+    status: INDEXED
+    lastIndexed: "2026-09-26T15:59:23.9291071"
+  - id: relay-orchestrator
+    path: D:\Deepak\Learning\Agentic AI\Relay\relay-orchestrator
+    sourceType: LOCAL_PATH
+    status: INDEXED
+    lastIndexed: "2026-09-26T19:17:18.5687743"
 agents:
   enabled: true
   searchPaths:
-  - ~/.relay-orchestrator/agents
-  - classpath:agents
+    - .copilot/agents # project-local (highest priority)
+    - ~/.relay-orchestrator/agents # user-level
+    - classpath:agents # bundled defaults
   roles:
-    orchestrator: michael
-    analyst: oscar
-    implementer: dwight
-    tester: jim
-    documenter: pam
-  overrides:
-    michael:
-      temperature: 0.3
+    ORCHESTRATOR: michael
+    PLANNER: oscar
+    IMPLEMENTER: jim
+    REVIEWER: dwight
+    DOCUMENTER: pam
+    # ANALYST and TESTER intentionally unassigned
+  overrides: {}
   fallbackPersona: generic

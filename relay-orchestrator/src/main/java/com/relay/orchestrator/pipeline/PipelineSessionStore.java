@@ -2,10 +2,11 @@ package com.relay.orchestrator.pipeline;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.relay.orchestrator.config.MigrationSupport;
 import com.relay.orchestrator.pipeline.impl.ImplementationResult;
 import com.relay.orchestrator.service.ClarificationResult;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
@@ -17,32 +18,26 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-/**
- * SQLite persistence for pipeline sessions. One row per session.
- * Q&A history and last ClarificationResult are stored as JSON columns.
- *
- * This is the checkpointer in LangGraph4j terms — the state lives here
- * so the loop can pause and resume across app restarts.
- */
 @Service
-public class PipelineSessionStore {
+public class PipelineSessionStore extends MigrationSupport {
 
-    private static final Logger log = LoggerFactory.getLogger(PipelineSessionStore.class);
+    private static final String TABLE = "orch_pipeline_sessions";
+    private static final String DEFAULT_SERVICE = "default";
 
-    private final JdbcTemplate jdbc;
     private final ObjectMapper mapper = new ObjectMapper()
-            .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule())
-            .disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     public PipelineSessionStore(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
+        super(jdbc);
         ensureSchema();
     }
 
     private void ensureSchema() {
         jdbc.execute("""
-                CREATE TABLE IF NOT EXISTS pipeline_sessions (
+                CREATE TABLE IF NOT EXISTS orch_pipeline_sessions (
                   id TEXT PRIMARY KEY,
+                  service_id TEXT NOT NULL DEFAULT 'default',
                   original_story TEXT NOT NULL,
                   stage TEXT NOT NULL,
                   turn_count INTEGER NOT NULL DEFAULT 0,
@@ -54,8 +49,11 @@ public class PipelineSessionStore {
                   updated_at TEXT NOT NULL
                 )
                 """);
-        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_sessions_stage ON pipeline_sessions(stage)");
-        log.info("pipeline_sessions table ready");
+
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_orch_sessions_stage ON " + TABLE + "(stage)");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_orch_sessions_service ON " + TABLE + "(service_id)");
+
+        log.info("{} table ready", TABLE);
     }
 
     public void save(PipelineSession session) {
@@ -69,11 +67,11 @@ public class PipelineSessionStore {
                     : null;
 
             jdbc.update("""
-                    INSERT INTO pipeline_sessions
-                      (id, original_story, stage, turn_count, max_turns,
+                    INSERT INTO orch_pipeline_sessions
+                      (id, service_id, original_story, stage, turn_count, max_turns,
                        qa_history_json, last_result_json, implementation_json,
                        created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                       stage = excluded.stage,
                       turn_count = excluded.turn_count,
@@ -83,6 +81,7 @@ public class PipelineSessionStore {
                       updated_at = excluded.updated_at
                     """,
                     session.id(),
+                    DEFAULT_SERVICE,
                     session.originalStory(),
                     session.stage().name(),
                     session.turnCount(),
@@ -100,7 +99,7 @@ public class PipelineSessionStore {
 
     public Optional<PipelineSession> find(String id) {
         List<PipelineSession> rows = jdbc.query(
-                "SELECT * FROM pipeline_sessions WHERE id = ?",
+                "SELECT * FROM " + TABLE + " WHERE id = ?",
                 new SessionRowMapper(),
                 id);
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
@@ -108,9 +107,13 @@ public class PipelineSessionStore {
 
     public List<PipelineSession> recent(int limit) {
         return jdbc.query(
-                "SELECT * FROM pipeline_sessions ORDER BY updated_at DESC LIMIT ?",
+                "SELECT * FROM " + TABLE + " ORDER BY updated_at DESC LIMIT ?",
                 new SessionRowMapper(),
                 limit);
+    }
+
+    public void delete(String sessionId) {
+        jdbc.update("DELETE FROM " + TABLE + " WHERE id = ?", sessionId);
     }
 
     private class SessionRowMapper implements RowMapper<PipelineSession> {
@@ -138,17 +141,6 @@ public class PipelineSessionStore {
         }
     }
 
-    private ImplementationResult readImpl(String json) {
-        if (json == null || json.isBlank())
-            return null;
-        try {
-            return mapper.readValue(json, ImplementationResult.class);
-        } catch (Exception e) {
-            log.warn("Failed to parse implementation_json", e);
-            return null;
-        }
-    }
-
     private List<AnsweredQuestion> readQa(String json) {
         if (json == null || json.isBlank())
             return new ArrayList<>();
@@ -168,6 +160,17 @@ public class PipelineSessionStore {
             return mapper.readValue(json, ClarificationResult.class);
         } catch (Exception e) {
             log.warn("Failed to parse last_result_json", e);
+            return null;
+        }
+    }
+
+    private ImplementationResult readImpl(String json) {
+        if (json == null || json.isBlank())
+            return null;
+        try {
+            return mapper.readValue(json, ImplementationResult.class);
+        } catch (Exception e) {
+            log.warn("Failed to parse implementation_json", e);
             return null;
         }
     }
