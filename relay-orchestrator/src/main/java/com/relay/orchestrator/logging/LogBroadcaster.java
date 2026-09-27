@@ -16,8 +16,6 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 @Component
 public class LogBroadcaster {
@@ -28,15 +26,9 @@ public class LogBroadcaster {
 
     private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
 
-    // Create a dedicated lock object specifically to protect our replay buffer queue
     private final Object bufferLock = new Object();
     private final Deque<LogEvent> replayBuffer = new ArrayDeque<>();
 
-    // CHANGED: dedicated single-thread executor for cleanup.
-    // Calling emitter.complete() on the publishing thread can fight the Tomcat
-    // async flush machinery and cascade into "connection aborted" IOExceptions
-    // logged by the dispatcher servlet. Moving completion off the publishing
-    // thread avoids that re-entrancy.
     private final ExecutorService cleanupExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "sse-cleanup");
         t.setDaemon(true);
@@ -46,15 +38,13 @@ public class LogBroadcaster {
     public SseEmitter subscribe() {
         SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MS);
 
-        // CHANGED: each callback routes through the async cleanup so we never
-        // call complete() inline from a container callback.
         emitter.onCompletion(() -> scheduleCleanup(emitter));
         emitter.onTimeout(() -> scheduleCleanup(emitter));
         emitter.onError(ex -> {
             if (isSocketDisconnect(ex)) {
                 log.debug("SSE client errored (disconnect); scheduling cleanup");
             } else {
-                log.warn("SSE client errored", ex);
+                log.warn("SSE client errored: {}", ex.getMessage());
             }
             scheduleCleanup(emitter);
         });
@@ -66,7 +56,6 @@ public class LogBroadcaster {
             history = new ArrayList<>(replayBuffer);
         }
         for (LogEvent buffered : history) {
-            // CHANGED: if replay fails, stop replaying to this emitter immediately.
             if (!sendTo(emitter, buffered)) {
                 break;
             }
@@ -86,23 +75,16 @@ public class LogBroadcaster {
             try {
                 emitter.send(SseEmitter.event().name("logline").data(event.toHtmlRow()));
             } catch (Throwable t) {
-                // CHANGED: never rethrow; the container's async flush can still
-                // surface this later as a dispatcherServlet ERROR. See
-                // TomcatNoiseSuppressorConfig for the container-level silencer.
                 if (isSocketDisconnect(t)) {
                     log.debug("SSE client disconnected; dropping dead subscriber");
                 } else {
-                    log.warn("SSE publish failed for live subscriber", t);
+                    log.warn("SSE publish failed for live subscriber: {}", t.getMessage());
                 }
                 scheduleCleanup(emitter);
             }
         }
     }
 
-    /**
-     * @return true if the event was delivered (or accepted into the container's
-     *         buffer), false if the emitter should be abandoned.
-     */
     private boolean sendTo(SseEmitter emitter, LogEvent event) {
         try {
             emitter.send(SseEmitter.event().name("logline").data(event.toHtmlRow()));
@@ -111,45 +93,42 @@ public class LogBroadcaster {
             if (isSocketDisconnect(t)) {
                 log.debug("SSE client disconnected while replaying history");
             } else {
-                log.warn("SSE replay failed", t);
+                log.warn("SSE replay failed: {}", t.getMessage());
             }
             scheduleCleanup(emitter);
             return false;
         }
     }
 
-    /**
-     * CHANGED: scheduled rather than inline. Guarded with an AtomicBoolean per
-     * emitter so that onCompletion + onError firing in quick succession don't
-     * both enqueue a cleanup for the same emitter.
-     */
     private void scheduleCleanup(SseEmitter emitter) {
-        if (emitter == null) {
+        if (emitter == null)
             return;
-        }
-        // CopyOnWriteArrayList.remove is idempotent, but we still want to avoid
-        // queueing duplicate tasks. A simple check then submit is fine here.
-        if (!emitters.contains(emitter)) {
+        if (!emitters.contains(emitter))
             return;
-        }
         cleanupExecutor.execute(() -> cleanupDeadEmitter(emitter));
     }
 
     private void cleanupDeadEmitter(SseEmitter emitter) {
-        if (emitter == null) {
+        if (emitter == null)
             return;
-        }
-        // CHANGED: remove first so nothing new tries to publish to it while
-        // we're completing it.
         emitters.remove(emitter);
         try {
             emitter.complete();
         } catch (Exception ignored) {
-            // client already dropped; nothing else to do
+            // client already dropped
         }
     }
 
     private boolean isSocketDisconnect(Throwable t) {
+        // Guard against emitters that the container has already completed.
+        // The next send() throws IllegalStateException with a specific message.
+        if (t instanceof IllegalStateException) {
+            String m = t.getMessage();
+            if (m != null && m.contains("ResponseBodyEmitter has already completed")) {
+                return true;
+            }
+        }
+
         Set<String> disconnectMarkers = new HashSet<>(Arrays.asList(
                 "broken pipe",
                 "connection aborted",
@@ -162,6 +141,7 @@ public class LogBroadcaster {
                 "connection closed",
                 "connection has been closed",
                 "an existing connection was forcibly closed",
+                "responsebodyemitter has already completed",
                 "ioexception: broken pipe",
                 "ioexception: connection reset by peer",
                 "java.net.socketexception: broken pipe",
@@ -184,7 +164,8 @@ public class LogBroadcaster {
             }
 
             String className = current.getClass().getName();
-            if (className != null && className.toLowerCase(Locale.ROOT).contains("clientabortexception")) {
+            if (className != null
+                    && className.toLowerCase(Locale.ROOT).contains("clientabortexception")) {
                 return true;
             }
 

@@ -2,6 +2,8 @@ package com.relay.orchestrator.connection;
 
 import com.relay.orchestrator.artifact.Artifact;
 import com.relay.orchestrator.artifact.ArtifactKind;
+import com.relay.orchestrator.artifact.Executor;
+import com.relay.orchestrator.artifact.ExecutorRegistry;
 import com.relay.orchestrator.artifact.ArtifactStore;
 import com.relay.orchestrator.artifact.Producer;
 import com.relay.orchestrator.artifact.ProducerRegistry;
@@ -21,6 +23,7 @@ import com.relay.orchestrator.service.ClarificationResult;
 import com.relay.orchestrator.service.IntentClarifierService;
 import com.relay.orchestrator.tokens.TokenMetricsService;
 
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -32,6 +35,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +58,7 @@ public class ConnectionController {
     private final ImplementerService implementerService;
     private final ArtifactStore artifactStore;
     private final ProducerRegistry producerRegistry;
+    private final ExecutorRegistry executorRegistry;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "connection-test");
@@ -73,7 +78,8 @@ public class ConnectionController {
             ChunkRepository chunkRepository,
             ImplementerService implementerService,
             ArtifactStore artifactStore,
-            ProducerRegistry producerRegistry) {
+            ProducerRegistry producerRegistry,
+            ExecutorRegistry executorRegistry) {
         this.configService = configService;
         this.connectionStatusService = connectionStatusService;
         this.copilotConnectionChecker = copilotConnectionChecker;
@@ -87,6 +93,7 @@ public class ConnectionController {
         this.implementerService = implementerService;
         this.artifactStore = artifactStore;
         this.producerRegistry = producerRegistry;
+        this.executorRegistry = executorRegistry;
     }
 
     @ModelAttribute("config")
@@ -295,9 +302,10 @@ public class ConnectionController {
         try {
             session = loopService.get(sessionId);
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(404).body(Map.of("error", e.getMessage()));
+            return ResponseEntity.status(404).body(Map.of("error", "Session not found"));
         }
 
+        // Stage guard
         PipelineStage stage = session.stage();
         if (stage != PipelineStage.READY_TO_IMPLEMENT
                 && stage != PipelineStage.IMPLEMENTATION_READY
@@ -307,26 +315,45 @@ public class ConnectionController {
                             + "; cannot run implementer"));
         }
 
+        // Require an approved PLAN artifact
+        Artifact plan = artifactStore
+                .findBySessionAndKind(sessionId, ArtifactKind.PLAN)
+                .stream()
+                .findFirst()
+                .orElse(null);
+
+        if (plan == null) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "No plan found. Generate and approve a plan first."));
+        }
+        if (!plan.isApproved()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Plan is " + plan.status()
+                            + "; approve it before running the implementer."));
+        }
+
+        if (!executorRegistry.has(ArtifactKind.PLAN)) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", "No executor registered for PLAN"));
+        }
+
+        Executor planExecutor = executorRegistry.forKind(ArtifactKind.PLAN);
+        final Artifact planRef = plan;
+        final PipelineSession sessionRef = session;
+
         executor.submit(() -> {
             try {
-                ImplementationResult result = implementerService.implement(session);
-                PipelineSession updated = session.withImplementation(result);
-                loopService.save(updated);
-
-                // Mark the approved plan as EXECUTED so the UI flips the card
-                artifactStore.latestForSession(session.id(), ArtifactKind.PLAN)
-                        .filter(a -> a.isApproved())
-                        .ifPresent(a -> artifactStore.markExecuted(a.id()));
-
+                planExecutor.execute(planRef, sessionRef);
             } catch (Exception e) {
                 logBroadcaster.publish(LogEvent.error(
-                        "[IMPLEMENTER] Implementation failed: " + e.getMessage()));
+                        "[EXECUTOR] Unexpected failure: " + e.getMessage()));
             }
         });
 
         return ResponseEntity.accepted().body(Map.of(
                 "status", "running",
                 "sessionId", sessionId,
+                "artifactId", plan.id(),
                 "message", "Implementer started. Watch the live log."));
     }
 
@@ -626,6 +653,93 @@ public class ConnectionController {
         view.put("approvedBy", a.approvedBy());
         view.put("createdAt", a.createdAt().toString());
         view.put("approvedAt", a.approvedAt() != null ? a.approvedAt().toString() : null);
+        view.put("verdict", a.verdict());
         return view;
+    }
+
+    @PostMapping("/pipeline/{sessionId}/reimplement")
+    @ResponseBody
+    public ResponseEntity<?> reimplement(@PathVariable String sessionId) {
+
+        PipelineSession session;
+        try {
+            session = loopService.get(sessionId);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(404).body(Map.of("error", "Session not found"));
+        }
+
+        Artifact plan = artifactStore
+                .findBySessionAndKind(sessionId, ArtifactKind.PLAN)
+                .stream().findFirst().orElse(null);
+
+        if (plan == null || !(plan.isApproved() || plan.isExecuted())) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "No approved plan available for re-implementation"));
+        }
+
+        Artifact review = artifactStore
+                .findBySessionAndKind(sessionId, ArtifactKind.REVIEW)
+                .stream().findFirst().orElse(null);
+
+        if (review == null) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "No review available. Generate a review first."));
+        }
+
+        if ("APPROVE".equalsIgnoreCase(review.verdict())) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Review verdict is APPROVE; nothing to re-implement."));
+        }
+
+        // Delete the stale review — the diff is about to change
+        artifactStore.delete(sessionId, ArtifactKind.REVIEW);
+
+        if (!executorRegistry.has(ArtifactKind.PLAN)) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", "No executor registered for PLAN"));
+        }
+
+        // Use PlanExecutor directly for feedback flow
+        if (!(executorRegistry
+                .forKind(ArtifactKind.PLAN) instanceof com.relay.orchestrator.artifact.PlanExecutor planExecutor)) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", "PLAN executor does not support feedback"));
+        }
+
+        final Artifact planRef = plan;
+        final PipelineSession sessionRef = session;
+        final String feedback = review.content();
+
+        executor.submit(() -> {
+            try {
+                planExecutor.executeWithFeedback(planRef, sessionRef, feedback);
+            } catch (Exception e) {
+                logBroadcaster.publish(LogEvent.error(
+                        "[EXECUTOR] Re-implementation failed: " + e.getMessage()));
+            }
+        });
+
+        return ResponseEntity.accepted().body(Map.of(
+                "status", "running",
+                "sessionId", sessionId,
+                "message", "Re-implementation started. Watch the live log."));
+    }
+
+    @GetMapping("/artifact/{id}/download")
+    public ResponseEntity<?> downloadArtifact(@PathVariable String id) {
+        return artifactStore.find(id)
+                .<ResponseEntity<?>>map(a -> {
+                    String filename = a.kind().name().toLowerCase()
+                            + "-" + a.shortId() + ".md";
+                    byte[] bytes = a.content().getBytes(StandardCharsets.UTF_8);
+
+                    return ResponseEntity.ok()
+                            .contentType(MediaType.parseMediaType("text/markdown; charset=UTF-8"))
+                            .header("Content-Disposition",
+                                    "attachment; filename=\"" + filename + "\"")
+                            .body(bytes);
+                })
+                .orElseGet(() -> ResponseEntity.status(404)
+                        .body(Map.of("error", "Artifact not found")));
     }
 }

@@ -82,7 +82,8 @@ public abstract class BaseProducer implements Producer {
         Map<String, Object> args = response.toolCalls().get(0).arguments();
 
         String markdown = assembleMarkdown(args, session, persona);
-        String id = artifactStore.create(session.id(), produces(), markdown, persona.name());
+        String verdict = extractVerdict(args);
+        String id = artifactStore.create(session.id(), produces(), markdown, verdict, persona.name());
 
         Artifact artifact = artifactStore.find(id).orElseThrow(
                 () -> new IllegalStateException("Artifact created but not found: " + id));
@@ -92,6 +93,14 @@ public abstract class BaseProducer implements Producer {
                         + produces() + " artifact " + id.substring(0, 12) + " created"));
 
         return artifact;
+    }
+
+    /**
+     * Optional verdict extraction. Only review-like producers return
+     * a non-null verdict. Default: null.
+     */
+    protected String extractVerdict(Map<String, Object> args) {
+        return null;
     }
 
     // ------------------------------------------------------------------

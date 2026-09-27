@@ -40,6 +40,11 @@ public class ReviewProducer extends BaseProducer {
     }
 
     @Override
+    protected String extractVerdict(Map<String, Object> args) {
+        return stringOr(args, "verdict", "COMMENT");
+    }
+
+    @Override
     public ArtifactKind produces() {
         return ArtifactKind.REVIEW;
     }

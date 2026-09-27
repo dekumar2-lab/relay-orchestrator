@@ -78,6 +78,183 @@ public class ImplementerService {
         this.appConfigManager = appConfigManager;
     }
 
+    /**
+     * Plan-aware entry point. The approved plan is the primary directive —
+     * it goes into the user message before anything else.
+     */
+    public ImplementationResult implement(PipelineSession session, String planMarkdown) {
+        if (session.lastResult() == null) {
+            return failedResult("No clarifier result attached to session", 0);
+        }
+
+        RepositoryConfig repo = pickWorkingRepo();
+        if (repo == null) {
+            return failedResult("No indexed repository available", 0);
+        }
+        Path repoRoot = Paths.get(repo.getPath()).toAbsolutePath().normalize();
+        logBroadcaster.publish(LogEvent.info(
+                "[IMPLEMENTER] Working repo: " + repo.getId() + " at " + repoRoot));
+        logBroadcaster.publish(LogEvent.info(
+                "[IMPLEMENTER] Executing approved plan (" + planMarkdown.length() + " chars)"));
+
+        workspace.reset(session.id());
+
+        ConnectionConfig config = configService.load()
+                .orElseThrow(() -> new IllegalStateException("No configuration loaded"));
+
+        AgentPersona persona = agentRegistry.getForRole(AgentRole.IMPLEMENTER);
+        String model = persona.modelOverride().orElse(config.getModel());
+        int maxTokens = persona.maxTokensOverride().orElse(4000);
+        double temperature = persona.temperatureOverride().orElse(0.0);
+
+        String systemPrompt = persona.toSystemPrompt()
+                + "\n\n" + IMPLEMENTER_GUIDANCE
+                + "\n\nREPO ROOT (relative paths only): " + repoRoot;
+
+        List<LlmClient.ToolDefinition> tools = buildTools();
+        List<LlmClient.Message> messages = new ArrayList<>();
+        messages.add(LlmClient.Message.user(composeUserMessageWithPlan(session, planMarkdown)));
+
+        logBroadcaster.publish(LogEvent.info(
+                "[" + persona.displayName() + "] Implementing: \""
+                        + abbreviate(session.originalStory(), 100) + "\""));
+
+        int turn = 0;
+        String submittedSummary = null;
+        String stopReason = "TURN_CAP";
+
+        while (turn < MAX_TURNS) {
+            turn++;
+
+            LlmClient.LlmRequest request = new LlmClient.LlmRequest(
+                    systemPrompt,
+                    List.copyOf(messages),
+                    model,
+                    maxTokens,
+                    temperature,
+                    tools,
+                    LlmClient.ToolChoice.auto());
+
+            LlmClient.LlmResponse response;
+            try {
+                response = llmRouter.complete(config, request);
+            } catch (Exception e) {
+                log.error("Implementer LLM call failed", e);
+                logBroadcaster.publish(LogEvent.error(
+                        "[IMPLEMENTER] LLM call failed: " + e.getMessage()));
+                return failedResult("LLM call failed: " + e.getMessage(), turn);
+            }
+
+            tokenTracker.logUsage(
+                    "IMPLEMENTER_TURN",
+                    response.modelUsed(),
+                    response.inputTokens(),
+                    response.outputTokens());
+
+            tokenMetrics.record(
+                    session.id(),
+                    AgentRole.IMPLEMENTER,
+                    persona.name(),
+                    response.modelUsed(),
+                    0,
+                    response.totalInputTokens(),
+                    0,
+                    response.outputTokens(),
+                    response.cacheReadTokens(),
+                    response.cacheWriteTokens());
+
+            if (!response.hasToolCalls()) {
+                logBroadcaster.publish(LogEvent.warn(
+                        "[IMPLEMENTER] Turn " + turn
+                                + " produced no tool calls; nudging agent."));
+                messages.add(LlmClient.Message.assistant(
+                        response.text() == null ? "" : response.text()));
+                messages.add(LlmClient.Message.user(
+                        "Please continue using the tools. When the change is "
+                                + "complete, call " + TOOL_SUBMIT + "."));
+                continue;
+            }
+
+            messages.add(LlmClient.Message.assistantWithToolCalls(response.toolCalls()));
+
+            boolean submitThisTurn = false;
+            for (LlmClient.ToolCall call : response.toolCalls()) {
+                String resultText;
+                try {
+                    resultText = dispatchTool(call, repoRoot, session.id());
+                } catch (Exception e) {
+                    log.warn("Tool {} failed: {}", call.name(), e.getMessage());
+                    resultText = "ERROR: " + e.getMessage();
+                }
+
+                if (TOOL_SUBMIT.equals(call.name())) {
+                    Object s = call.arguments().get("summary");
+                    submittedSummary = s == null ? "Change submitted" : String.valueOf(s);
+                    submitThisTurn = true;
+                }
+
+                messages.add(LlmClient.Message.toolResult(call.id(), resultText));
+            }
+
+            logBroadcaster.publish(LogEvent.info(
+                    "[IMPLEMENTER] Turn " + turn + " — "
+                            + response.toolCalls().size() + " tool call(s), "
+                            + workspace.staged(session.id()).size() + " staged change(s)"));
+
+            if (submitThisTurn) {
+                stopReason = "SUBMITTED";
+                break;
+            }
+        }
+
+        ImplementationResult result = buildResult(
+                session.id(),
+                submittedSummary == null ? "Implementer finished" : submittedSummary,
+                turn,
+                stopReason);
+
+        logBroadcaster.publish(LogEvent.success(
+                "[IMPLEMENTER] " + result.files().size() + " file(s), +"
+                        + result.totalAdditions() + "/-" + result.totalDeletions()
+                        + " in " + turn + " turn(s)"));
+
+        return result;
+    }
+
+    /**
+     * Plan-first user message. The approved plan is the primary directive;
+     * the clarifier's analysis becomes supporting context.
+     */
+    private String composeUserMessageWithPlan(PipelineSession session, String planMarkdown) {
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("STORY:\n").append(session.originalStory()).append("\n\n");
+
+        if (!session.qaHistory().isEmpty()) {
+            sb.append("USER ANSWERS:\n");
+            int i = 1;
+            for (AnsweredQuestion a : session.qaHistory()) {
+                if (a.question() != null && !a.question().isBlank()) {
+                    sb.append("Q").append(i).append(": ").append(a.question()).append("\n");
+                }
+                sb.append("A").append(i).append(": ").append(a.answer()).append("\n\n");
+                i++;
+            }
+        }
+
+        sb.append("APPROVED IMPLEMENTATION PLAN:\n");
+        sb.append("----------------------------------------\n");
+        sb.append(planMarkdown).append("\n");
+        sb.append("----------------------------------------\n\n");
+
+        sb.append("The plan above is your directive. Execute it faithfully. ");
+        sb.append("Follow the \"Files to Change\" section. ");
+        sb.append("Use the plan's \"Approach\" section as your checklist. ");
+        sb.append("Call ").append(TOOL_SUBMIT).append(" when every step is done.");
+
+        return sb.toString();
+    }
+
     public ImplementationResult implement(PipelineSession session) {
         if (session.lastResult() == null) {
             return failedResult("No clarifier result attached to session", 0);
@@ -212,6 +389,192 @@ public class ImplementerService {
                         + " in " + turn + " turn(s)"));
 
         return result;
+    }
+
+    public ImplementationResult implement(PipelineSession session,
+            String planMarkdown,
+            String reviewFeedback) {
+
+        if (session.lastResult() == null) {
+            return failedResult("No clarifier result attached to session", 0);
+        }
+
+        RepositoryConfig repo = pickWorkingRepo();
+        if (repo == null) {
+            return failedResult("No indexed repository available", 0);
+        }
+        Path repoRoot = Paths.get(repo.getPath()).toAbsolutePath().normalize();
+        logBroadcaster.publish(LogEvent.info(
+                "[IMPLEMENTER] Working repo: " + repo.getId() + " at " + repoRoot));
+        ImplementationResult prev = session.implementationResult();
+        int prevFiles = (prev != null && prev.files() != null) ? prev.files().size() : 0;
+        logBroadcaster.publish(LogEvent.info(
+                "[IMPLEMENTER] Re-implementing with review feedback ("
+                        + reviewFeedback.length() + " chars, " + prevFiles
+                        + " file(s) in previous diff)"));
+        workspace.reset(session.id());
+
+        ConnectionConfig config = configService.load()
+                .orElseThrow(() -> new IllegalStateException("No configuration loaded"));
+
+        AgentPersona persona = agentRegistry.getForRole(AgentRole.IMPLEMENTER);
+        String model = persona.modelOverride().orElse(config.getModel());
+        int maxTokens = persona.maxTokensOverride().orElse(4000);
+        double temperature = persona.temperatureOverride().orElse(0.0);
+
+        String systemPrompt = persona.toSystemPrompt()
+                + "\n\n" + IMPLEMENTER_GUIDANCE
+                + "\n\nREPO ROOT (relative paths only): " + repoRoot;
+
+        List<LlmClient.ToolDefinition> tools = buildTools();
+        List<LlmClient.Message> messages = new ArrayList<>();
+        messages.add(LlmClient.Message.user(
+                composeReimplementMessage(session, planMarkdown, reviewFeedback)));
+
+        logBroadcaster.publish(LogEvent.info(
+                "[" + persona.displayName() + "] Re-implementing: \""
+                        + abbreviate(session.originalStory(), 100) + "\""));
+
+        int turn = 0;
+        String submittedSummary = null;
+        String stopReason = "TURN_CAP";
+
+        while (turn < MAX_TURNS) {
+            turn++;
+
+            LlmClient.LlmRequest request = new LlmClient.LlmRequest(
+                    systemPrompt,
+                    List.copyOf(messages),
+                    model, maxTokens, temperature,
+                    tools,
+                    LlmClient.ToolChoice.auto());
+
+            LlmClient.LlmResponse response;
+            try {
+                response = llmRouter.complete(config, request);
+            } catch (Exception e) {
+                log.error("Implementer LLM call failed", e);
+                logBroadcaster.publish(LogEvent.error(
+                        "[IMPLEMENTER] LLM call failed: " + e.getMessage()));
+                return failedResult("LLM call failed: " + e.getMessage(), turn);
+            }
+
+            tokenTracker.logUsage(
+                    "IMPLEMENTER_REIMPL",
+                    response.modelUsed(),
+                    response.inputTokens(),
+                    response.outputTokens());
+
+            tokenMetrics.record(
+                    session.id(),
+                    AgentRole.IMPLEMENTER,
+                    persona.name(),
+                    response.modelUsed(),
+                    0,
+                    response.totalInputTokens(),
+                    0,
+                    response.outputTokens(),
+                    response.cacheReadTokens(),
+                    response.cacheWriteTokens());
+
+            if (!response.hasToolCalls()) {
+                messages.add(LlmClient.Message.assistant(
+                        response.text() == null ? "" : response.text()));
+                messages.add(LlmClient.Message.user(
+                        "Continue using the tools. Call " + TOOL_SUBMIT + " when done."));
+                continue;
+            }
+
+            messages.add(LlmClient.Message.assistantWithToolCalls(response.toolCalls()));
+
+            boolean submitThisTurn = false;
+            for (LlmClient.ToolCall call : response.toolCalls()) {
+                String resultText;
+                try {
+                    resultText = dispatchTool(call, repoRoot, session.id());
+                } catch (Exception e) {
+                    resultText = "ERROR: " + e.getMessage();
+                }
+                if (TOOL_SUBMIT.equals(call.name())) {
+                    Object s = call.arguments().get("summary");
+                    submittedSummary = s == null ? "Change submitted" : String.valueOf(s);
+                    submitThisTurn = true;
+                }
+                messages.add(LlmClient.Message.toolResult(call.id(), resultText));
+            }
+
+            logBroadcaster.publish(LogEvent.info(
+                    "[IMPLEMENTER] Turn " + turn + " — "
+                            + response.toolCalls().size() + " tool call(s), "
+                            + workspace.staged(session.id()).size() + " staged change(s)"));
+
+            if (submitThisTurn) {
+                stopReason = "SUBMITTED";
+                break;
+            }
+        }
+
+        ImplementationResult result = buildResult(
+                session.id(),
+                submittedSummary == null ? "Re-implemented" : submittedSummary,
+                turn, stopReason);
+
+        logBroadcaster.publish(LogEvent.success(
+                "[IMPLEMENTER] " + result.files().size() + " file(s), +"
+                        + result.totalAdditions() + "/-" + result.totalDeletions()
+                        + " in " + turn + " turn(s)"));
+
+        return result;
+    }
+
+    private String composeReimplementMessage(PipelineSession session,
+            String planMarkdown,
+            String reviewFeedback) {
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("STORY:\n").append(session.originalStory()).append("\n\n");
+
+        sb.append("APPROVED PLAN:\n---\n").append(planMarkdown).append("\n---\n\n");
+
+        // Include the previous diff so Jim can see what was reviewed
+        ImplementationResult prev = session.implementationResult();
+        if (prev != null && prev.files() != null && !prev.files().isEmpty()) {
+            sb.append("PREVIOUS IMPLEMENTATION (reviewed and found lacking):\n");
+            sb.append("----------------------------------------\n");
+            for (ImplementationResult.FileDiff f : prev.files()) {
+                sb.append("=== ").append(f.changeKind()).append(" ")
+                        .append(f.path()).append(" ===\n");
+                sb.append(f.unifiedDiff()).append("\n\n");
+            }
+            sb.append("----------------------------------------\n\n");
+        }
+
+        sb.append("REVIEW FEEDBACK (why the previous attempt failed):\n");
+        sb.append("----------------------------------------\n");
+        sb.append(reviewFeedback).append("\n");
+        sb.append("----------------------------------------\n\n");
+
+        sb.append("IMPORTANT: The previous implementation was NEVER applied to disk. ");
+        sb.append("read_file will fail on those paths. You must recreate every file ");
+        sb.append("from scratch using write_file — but this time, the new content ");
+        sb.append("must ADDRESS every BLOCKER and MAJOR issue in the review.\n\n");
+
+        sb.append("For each issue, examine the previous diff above and change the ");
+        sb.append("code accordingly. For example:\n");
+        sb.append("- If the review says 'Controller does not use Facade', the new ");
+        sb.append("controller code must delegate to the facade instead of duplicating logic.\n");
+        sb.append("- If the review says 'Service is unused', the new facade must ");
+        sb.append("actually call the service methods.\n");
+        sb.append("- If the review says 'Duplicate logic', remove it in the new version.\n\n");
+
+        sb.append("Do not simply regenerate the same files. Use the previous diff as ");
+        sb.append("a reference for WHAT NOT TO DO, and the review as the specification ");
+        sb.append("for what to fix.\n\n");
+
+        sb.append("Call ").append(TOOL_SUBMIT).append(" when the plan is fully ");
+        sb.append("implemented with the feedback incorporated.");
+
+        return sb.toString();
     }
 
     // ------------------------------------------------------------------
