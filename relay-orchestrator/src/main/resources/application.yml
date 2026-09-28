@@ -2,7 +2,7 @@ server:
   port: 8081
 
 api:
-  key: REDACTED
+  key:
 
 spring:
   application:

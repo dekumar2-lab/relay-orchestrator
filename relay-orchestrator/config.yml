@@ -1,26 +1,25 @@
 provider: GITHUB_COPILOT
-githubToken: REDACTED
+githubToken: ""
 workspaceDir: /tmp/workspace
 model: gpt-4o
 requestBudget: 5
 repositories:
-- id: backend
-  path: D:\Deepak\Learning\Agentic AI\Relay\backend
-  sourceType: LOCAL_PATH
-  status: INDEXED
-  lastIndexed: '2026-09-27T02:17:23.687713'
+  - id: backend
+    path: D:\Deepak\Learning\Agentic AI\Relay\backend
+    sourceType: LOCAL_PATH
+    status: INDEXED
+    lastIndexed: "2026-09-27T02:17:23.687713"
 agents:
   enabled: true
   searchPaths:
-  - .copilot/agents
-  - ~/.relay-orchestrator/agents
-  - classpath:agents
+    - .copilot/agents
+    - ~/.relay-orchestrator/agents
+    - classpath:agents
   roles:
     orchestrator: michael
     planner: oscar
     implementer: jim
     reviewer: dwight
     documenter: pam
-  overrides: {
-    }
+  overrides: {}
   fallbackPersona: generic
