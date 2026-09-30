@@ -104,12 +104,6 @@ public class RepoIndexerService {
                         + indexedMethods + " methods, "
                         + indexedChunks + " chunks stored in " + totalMs + " ms."));
 
-        logBroadcaster.publish(LogEvent.success(
-                "Indexing pipeline successfully finalized for target [" + repoId
-                        + "]. Found " + indexedClasses + " classes, "
-                        + indexedMethods + " methods, "
-                        + indexedChunks + " chunks stored in " + totalMs + " ms."));
-
         // NEW: refresh the BM25 index so retrieval can see the fresh chunks.
         luceneIndexService.rebuildIndex();
     }

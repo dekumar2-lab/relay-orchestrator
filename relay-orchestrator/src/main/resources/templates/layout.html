@@ -213,15 +213,19 @@
                     <div id="log-resize-handle"
                         class="h-1 cursor-ns-resize bg-slate-200 hover:bg-blue-500 transition-colors"
                         title="Drag to resize"></div>
-                    <div
-                        class="flex items-center justify-between px-4 py-1.5 text-[10px] uppercase tracking-[0.18em] text-slate-500 select-none border-b border-slate-100">
+                    <div class="flex items-center justify-between px-4 py-1.5 text-[10px] uppercase tracking-[0.18em] text-slate-500 select-none border-b border-slate-100">
                         <span>Live Slicer Stream</span>
-                        <span id="log-status">Connected</span>
+                        <div class="flex items-center gap-3">
+                            <span id="log-status">Connected</span>
+                            <button type="button" id="log-clear-btn"
+                                class="text-[10px] uppercase tracking-wider text-slate-500 hover:text-red-600 transition font-semibold"
+                                title="Clear log">Clear</button>
+                        </div>
                     </div>
                     <div id="log-scroll"
                         class="flex-1 overflow-auto bg-white px-4 py-2 font-mono text-xs text-slate-700" hx-ext="sse"
                         sse-connect="/logs/stream">
-                        <div id="log-content" sse-swap="logline" hx-swap="beforeend"></div>
+                        <div id="log-content" sse-swap="logline" hx-swap="afterbegin"></div>
                     </div>
                 </div>
             </main>
@@ -242,9 +246,7 @@
                 }
             });
         });
-    </script>
-
-    <script>
+   
         // ---- Log panel: resize + persist height + auto-scroll ----
         document.addEventListener('DOMContentLoaded', function () {
             const panel = document.getElementById('log-panel');
@@ -258,6 +260,15 @@
                     panel.style.height = saved + 'px';
                 }
             }
+
+            const clearBtn = document.getElementById('log-clear-btn');
+                if (clearBtn) {
+                    clearBtn.addEventListener('click', async () => {
+                        const content = document.getElementById('log-content');
+                        if (content) content.innerHTML = '';
+                        try { await fetch('/logs/clear', { method: 'POST' }); } catch (_) {}
+                    });
+                }
 
             // Drag to resize
             if (panel && handle) {
@@ -294,17 +305,17 @@
             // Auto-scroll to newest log line (only if user is near bottom)
             if (logScroll) {
                 const observer = new MutationObserver(() => {
-                    const distanceFromBottom =
-                        logScroll.scrollHeight - logScroll.scrollTop - logScroll.clientHeight;
-                    if (distanceFromBottom < 100) {
-                        logScroll.scrollTop = logScroll.scrollHeight;
+                    // Newest lines render at the top. Only auto-scroll if the user
+                    // is already near the top — don't yank them if they're reading
+                    // older entries below.
+                    if (logScroll.scrollTop < 100) {
+                        logScroll.scrollTop = 0;
                     }
                 });
                 observer.observe(logScroll, { childList: true, subtree: true });
 
-                // Initial scroll on load
                 requestAnimationFrame(() => {
-                    logScroll.scrollTop = logScroll.scrollHeight;
+                    logScroll.scrollTop = 0;
                 });
             }
         });

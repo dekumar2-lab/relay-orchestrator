@@ -31,7 +31,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 @Service
 public class ImplementerService {
@@ -78,10 +81,10 @@ public class ImplementerService {
         this.appConfigManager = appConfigManager;
     }
 
-    /**
-     * Plan-aware entry point. The approved plan is the primary directive —
-     * it goes into the user message before anything else.
-     */
+    // ==================================================================
+    // PLAN-AWARE OVERLOAD
+    // ==================================================================
+
     public ImplementationResult implement(PipelineSession session, String planMarkdown) {
         if (session.lastResult() == null) {
             return failedResult("No clarifier result attached to session", 0);
@@ -120,11 +123,32 @@ public class ImplementerService {
                         + abbreviate(session.originalStory(), 100) + "\""));
 
         int turn = 0;
+        int maxTurns = Math.min(MAX_TURNS, 12);
         String submittedSummary = null;
         String stopReason = "TURN_CAP";
 
-        while (turn < MAX_TURNS) {
+        while (turn < maxTurns) {
             turn++;
+
+            if (turn == 5 && workspace.staged(session.id()).isEmpty()) {
+                logBroadcaster.publish(LogEvent.warn(
+                        "[IMPLEMENTER] No changes staged after 4 turns — prompting to write"));
+                messages.add(LlmClient.Message.user(
+                        "You have used 4 turns without staging a change. STOP reading. "
+                                + "Call edit_file or write_file NOW to stage your best attempt "
+                                + "at the fix. You can refine it in later turns."));
+            }
+
+            List<LlmClient.ToolDefinition> activeTools = tools;
+            if (turn >= 8 && workspace.staged(session.id()).isEmpty()) {
+                logBroadcaster.publish(LogEvent.warn(
+                        "[IMPLEMENTER] Turn " + turn
+                                + " with 0 staged changes — restricting tools to write/submit"));
+                activeTools = tools.stream()
+                        .filter(t -> TOOL_WRITE.equals(t.name()) || TOOL_EDIT.equals(t.name())
+                                || TOOL_SUBMIT.equals(t.name()))
+                        .toList();
+            }
 
             LlmClient.LlmRequest request = new LlmClient.LlmRequest(
                     systemPrompt,
@@ -132,7 +156,7 @@ public class ImplementerService {
                     model,
                     maxTokens,
                     temperature,
-                    tools,
+                    activeTools,
                     LlmClient.ToolChoice.auto());
 
             LlmClient.LlmResponse response;
@@ -196,10 +220,12 @@ public class ImplementerService {
                 messages.add(LlmClient.Message.toolResult(call.id(), resultText));
             }
 
+            List<String> calledTools = response.toolCalls().stream()
+                    .map(LlmClient.ToolCall::name)
+                    .toList();
             logBroadcaster.publish(LogEvent.info(
-                    "[IMPLEMENTER] Turn " + turn + " — "
-                            + response.toolCalls().size() + " tool call(s), "
-                            + workspace.staged(session.id()).size() + " staged change(s)"));
+                    "[IMPLEMENTER] Turn " + turn + " — " + calledTools
+                            + ", " + workspace.staged(session.id()).size() + " staged change(s)"));
 
             if (submitThisTurn) {
                 stopReason = "SUBMITTED";
@@ -221,13 +247,8 @@ public class ImplementerService {
         return result;
     }
 
-    /**
-     * Plan-first user message. The approved plan is the primary directive;
-     * the clarifier's analysis becomes supporting context.
-     */
     private String composeUserMessageWithPlan(PipelineSession session, String planMarkdown) {
         StringBuilder sb = new StringBuilder();
-
         sb.append("STORY:\n").append(session.originalStory()).append("\n\n");
 
         if (!session.qaHistory().isEmpty()) {
@@ -251,9 +272,12 @@ public class ImplementerService {
         sb.append("Follow the \"Files to Change\" section. ");
         sb.append("Use the plan's \"Approach\" section as your checklist. ");
         sb.append("Call ").append(TOOL_SUBMIT).append(" when every step is done.");
-
         return sb.toString();
     }
+
+    // ==================================================================
+    // NO-PLAN OVERLOAD (used by /pipeline/{id}/fix)
+    // ==================================================================
 
     public ImplementationResult implement(PipelineSession session) {
         if (session.lastResult() == null) {
@@ -279,6 +303,7 @@ public class ImplementerService {
         double temperature = persona.temperatureOverride().orElse(0.0);
 
         String systemPrompt = persona.toSystemPrompt()
+                + "\n\n" + IMPLEMENTER_GUIDANCE
                 + "\n\nREPO ROOT (relative paths only): " + repoRoot;
 
         List<LlmClient.ToolDefinition> tools = buildTools();
@@ -290,11 +315,32 @@ public class ImplementerService {
                         + abbreviate(session.originalStory(), 100) + "\""));
 
         int turn = 0;
+        int maxTurns = Math.min(MAX_TURNS, 12);
         String submittedSummary = null;
         String stopReason = "TURN_CAP";
 
-        while (turn < MAX_TURNS) {
+        while (turn < maxTurns) {
             turn++;
+
+            if (turn == 5 && workspace.staged(session.id()).isEmpty()) {
+                logBroadcaster.publish(LogEvent.warn(
+                        "[IMPLEMENTER] No changes staged after 4 turns — prompting to write"));
+                messages.add(LlmClient.Message.user(
+                        "You have used 4 turns without staging a change. STOP reading. "
+                                + "Call edit_file or write_file NOW to stage your best attempt "
+                                + "at the fix. You can refine it in later turns."));
+            }
+
+            List<LlmClient.ToolDefinition> activeTools = tools;
+            if (turn >= 8 && workspace.staged(session.id()).isEmpty()) {
+                logBroadcaster.publish(LogEvent.warn(
+                        "[IMPLEMENTER] Turn " + turn
+                                + " with 0 staged changes — restricting tools to write/submit"));
+                activeTools = tools.stream()
+                        .filter(t -> TOOL_WRITE.equals(t.name()) || TOOL_EDIT.equals(t.name())
+                                || TOOL_SUBMIT.equals(t.name()))
+                        .toList();
+            }
 
             LlmClient.LlmRequest request = new LlmClient.LlmRequest(
                     systemPrompt,
@@ -302,7 +348,7 @@ public class ImplementerService {
                     model,
                     maxTokens,
                     temperature,
-                    tools,
+                    activeTools,
                     LlmClient.ToolChoice.auto());
 
             LlmClient.LlmResponse response;
@@ -366,10 +412,12 @@ public class ImplementerService {
                 messages.add(LlmClient.Message.toolResult(call.id(), resultText));
             }
 
+            List<String> calledTools = response.toolCalls().stream()
+                    .map(LlmClient.ToolCall::name)
+                    .toList();
             logBroadcaster.publish(LogEvent.info(
-                    "[IMPLEMENTER] Turn " + turn + " — "
-                            + response.toolCalls().size() + " tool call(s), "
-                            + workspace.staged(session.id()).size() + " staged change(s)"));
+                    "[IMPLEMENTER] Turn " + turn + " — " + calledTools
+                            + ", " + workspace.staged(session.id()).size() + " staged change(s)"));
 
             if (submitThisTurn) {
                 stopReason = "SUBMITTED";
@@ -390,6 +438,10 @@ public class ImplementerService {
 
         return result;
     }
+
+    // ==================================================================
+    // RE-IMPLEMENT OVERLOAD (plan + review feedback)
+    // ==================================================================
 
     public ImplementationResult implement(PipelineSession session,
             String planMarkdown,
@@ -436,17 +488,40 @@ public class ImplementerService {
                         + abbreviate(session.originalStory(), 100) + "\""));
 
         int turn = 0;
+        int maxTurns = Math.min(MAX_TURNS, 12);
         String submittedSummary = null;
         String stopReason = "TURN_CAP";
 
-        while (turn < MAX_TURNS) {
+        while (turn < maxTurns) {
             turn++;
+
+            if (turn == 5 && workspace.staged(session.id()).isEmpty()) {
+                logBroadcaster.publish(LogEvent.warn(
+                        "[IMPLEMENTER] No changes staged after 4 turns — prompting to write"));
+                messages.add(LlmClient.Message.user(
+                        "You have used 4 turns without staging a change. STOP reading. "
+                                + "Call edit_file or write_file NOW to stage your best attempt "
+                                + "at the fix. You can refine it in later turns."));
+            }
+
+            List<LlmClient.ToolDefinition> activeTools = tools;
+            if (turn >= 8 && workspace.staged(session.id()).isEmpty()) {
+                logBroadcaster.publish(LogEvent.warn(
+                        "[IMPLEMENTER] Turn " + turn
+                                + " with 0 staged changes — restricting tools to write/submit"));
+                activeTools = tools.stream()
+                        .filter(t -> TOOL_WRITE.equals(t.name()) || TOOL_EDIT.equals(t.name())
+                                || TOOL_SUBMIT.equals(t.name()))
+                        .toList();
+            }
 
             LlmClient.LlmRequest request = new LlmClient.LlmRequest(
                     systemPrompt,
                     List.copyOf(messages),
-                    model, maxTokens, temperature,
-                    tools,
+                    model,
+                    maxTokens,
+                    temperature,
+                    activeTools,
                     LlmClient.ToolChoice.auto());
 
             LlmClient.LlmResponse response;
@@ -503,10 +578,13 @@ public class ImplementerService {
                 messages.add(LlmClient.Message.toolResult(call.id(), resultText));
             }
 
+            List<String> calledTools = response.toolCalls().stream()
+                    .map(LlmClient.ToolCall::name)
+                    .toList();
+
             logBroadcaster.publish(LogEvent.info(
-                    "[IMPLEMENTER] Turn " + turn + " — "
-                            + response.toolCalls().size() + " tool call(s), "
-                            + workspace.staged(session.id()).size() + " staged change(s)"));
+                    "[IMPLEMENTER] Turn " + turn + " — " + calledTools
+                            + ", " + workspace.staged(session.id()).size() + " staged change(s)"));
 
             if (submitThisTurn) {
                 stopReason = "SUBMITTED";
@@ -534,12 +612,13 @@ public class ImplementerService {
 
         sb.append("STORY:\n").append(session.originalStory()).append("\n\n");
 
-        sb.append("APPROVED PLAN:\n---\n").append(planMarkdown).append("\n---\n\n");
+        if (planMarkdown != null && !planMarkdown.isBlank()) {
+            sb.append("APPROVED PLAN:\n---\n").append(planMarkdown).append("\n---\n\n");
+        }
 
-        // Include the previous diff so Jim can see what was reviewed
         ImplementationResult prev = session.implementationResult();
         if (prev != null && prev.files() != null && !prev.files().isEmpty()) {
-            sb.append("PREVIOUS IMPLEMENTATION (reviewed and found lacking):\n");
+            sb.append("PREVIOUS ATTEMPT (this is the diff that was reviewed and found lacking):\n");
             sb.append("----------------------------------------\n");
             for (ImplementationResult.FileDiff f : prev.files()) {
                 sb.append("=== ").append(f.changeKind()).append(" ")
@@ -549,37 +628,36 @@ public class ImplementerService {
             sb.append("----------------------------------------\n\n");
         }
 
-        sb.append("REVIEW FEEDBACK (why the previous attempt failed):\n");
+        sb.append("FAILURE REPORT FROM THE TEST HARNESS:\n");
         sb.append("----------------------------------------\n");
         sb.append(reviewFeedback).append("\n");
         sb.append("----------------------------------------\n\n");
 
-        sb.append("IMPORTANT: The previous implementation was NEVER applied to disk. ");
-        sb.append("read_file will fail on those paths. You must recreate every file ");
-        sb.append("from scratch using write_file — but this time, the new content ");
-        sb.append("must ADDRESS every BLOCKER and MAJOR issue in the review.\n\n");
+        sb.append("CRITICAL GUIDANCE:\n");
+        sb.append("- The file on disk is currently PRISTINE. The previous diff was undone ");
+        sb.append("before this run. Use read_file to inspect the current state — read_file ");
+        sb.append("WILL work and WILL return the original, unmodified file.\n");
+        sb.append("- If the report above shows a COMPILATION ERROR, the compiler named ");
+        sb.append("specific files and line numbers. Read the file at those exact lines. ");
+        sb.append("The fix must make the file compile.\n");
+        sb.append("- Do NOT make cosmetic changes to already-valid lines. ");
+        sb.append("Do NOT reformat or reorder code that already compiles. ");
+        sb.append("Address ONLY the specific error the compiler reported.\n");
+        sb.append("- When the previous diff needs to be replaced entirely (e.g. it ");
+        sb.append("introduced a syntax error), use write_file with the full corrected ");
+        sb.append("file content. Do not use edit_file for that case.\n");
+        sb.append("- Before calling submit_plan, verify the file you are producing is ");
+        sb.append("syntactically complete: no unbalanced braces, no stray punctuation, ");
+        sb.append("no missing semicolons or type declarations.\n\n");
 
-        sb.append("For each issue, examine the previous diff above and change the ");
-        sb.append("code accordingly. For example:\n");
-        sb.append("- If the review says 'Controller does not use Facade', the new ");
-        sb.append("controller code must delegate to the facade instead of duplicating logic.\n");
-        sb.append("- If the review says 'Service is unused', the new facade must ");
-        sb.append("actually call the service methods.\n");
-        sb.append("- If the review says 'Duplicate logic', remove it in the new version.\n\n");
-
-        sb.append("Do not simply regenerate the same files. Use the previous diff as ");
-        sb.append("a reference for WHAT NOT TO DO, and the review as the specification ");
-        sb.append("for what to fix.\n\n");
-
-        sb.append("Call ").append(TOOL_SUBMIT).append(" when the plan is fully ");
-        sb.append("implemented with the feedback incorporated.");
+        sb.append("Call ").append(TOOL_SUBMIT).append(" when the fix is staged.");
 
         return sb.toString();
     }
 
-    // ------------------------------------------------------------------
+    // ==================================================================
     // Tools
-    // ------------------------------------------------------------------
+    // ==================================================================
 
     private String dispatchTool(LlmClient.ToolCall call, Path repoRoot, String sessionId)
             throws IOException {
@@ -683,9 +761,9 @@ public class ImplementerService {
         return "Staged edit of " + rel;
     }
 
-    // ------------------------------------------------------------------
+    // ==================================================================
     // Diff generation
-    // ------------------------------------------------------------------
+    // ==================================================================
 
     private ImplementationResult buildResult(String sessionId, String summary,
             int turnCount, String stopReason) {
@@ -718,8 +796,8 @@ public class ImplementerService {
                     change.path(),
                     change.kind().name(),
                     String.join("\n", unified),
-                    change.before(), // null for CREATE
-                    change.after(), // null for DELETE
+                    change.before(),
+                    change.after(),
                     adds,
                     dels));
 
@@ -737,17 +815,26 @@ public class ImplementerService {
                 reason, List.of(), 0, 0, turnCount, "ERROR", LocalDateTime.now());
     }
 
-    // ------------------------------------------------------------------
+    // ==================================================================
     // Prompt + tool schemas
-    // ------------------------------------------------------------------
+    // ==================================================================
 
     private static final String IMPLEMENTER_GUIDANCE = """
             You are the IMPLEMENTER agent. You are given a clarifier's structured
             analysis and the user's answers. Your job is to propose the concrete
             code changes that satisfy the story.
 
+            TURN BUDGET:
+            You have at most 15 turns. Budget them:
+            - Turns 1-3: explore. Read the 1-2 files most likely to contain the fix.
+            - Turns 4-10: write. Use edit_file or write_file to stage every change.
+            - Turns 11-15: finish. Call submit_plan.
+
+            After turn 5, if you have not staged at least one change, stop reading
+            and write. You can always revise in a later turn.
+
             WORKFLOW:
-            1. Use search_code and read_file to understand the relevant code.
+            1. Use search_code and read_file to locate the target code.
             2. Use edit_file for surgical changes to existing files.
             3. Use write_file to create new files.
             4. When done, call submit_plan with a one-sentence summary.
@@ -848,9 +935,9 @@ public class ImplementerService {
         return m;
     }
 
-    // ------------------------------------------------------------------
+    // ==================================================================
     // Helpers
-    // ------------------------------------------------------------------
+    // ==================================================================
 
     private RepositoryConfig pickWorkingRepo() {
         for (RepositoryConfig repo : appConfigManager.getRepositories()) {

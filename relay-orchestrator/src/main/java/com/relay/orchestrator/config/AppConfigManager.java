@@ -1,18 +1,19 @@
 package com.relay.orchestrator.config;
 
-import org.yaml.snakeyaml.DumperOptions;
-import org.yaml.snakeyaml.Yaml;
-
 import com.relay.orchestrator.agent.AgentConfig;
 import com.relay.orchestrator.agent.AgentRole;
 import com.relay.orchestrator.connection.ConnectionConfig;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
+import org.yaml.snakeyaml.DumperOptions;
+import org.yaml.snakeyaml.Yaml;
 
 import jakarta.annotation.PostConstruct;
-import java.io.*;
+import java.io.FileWriter;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -25,12 +26,26 @@ public class AppConfigManager {
 
     private static final Logger log = LoggerFactory.getLogger(AppConfigManager.class);
 
-    private final Path configPath = resolveConfigPath();
+    private final Path configPath;
+    private final ApplicationEventPublisher events;
+    private final List<RepositoryConfig> repositories = new ArrayList<>();
 
     private AgentConfig agentConfig = AgentConfig.defaults();
+    private String githubToken = "";
+    private String workspaceDir = "";
+    private String model = "gpt-4o";
+    private int requestBudget = 20;
+    private String provider = "GITHUB_COPILOT";
 
-    public AgentConfig getAgentConfig() {
-        return agentConfig;
+    @Autowired
+    public AppConfigManager(ApplicationEventPublisher events) {
+        this(resolveConfigPath(), events);
+    }
+
+    /** Package-private for tests. */
+    AppConfigManager(Path configPath, ApplicationEventPublisher events) {
+        this.configPath = configPath;
+        this.events = events;
     }
 
     private static Path resolveConfigPath() {
@@ -39,18 +54,9 @@ public class AppConfigManager {
             return Path.of(envDataDir, "config.yml");
         }
         Path projectConfig = Paths.get("config.yml").toAbsolutePath().normalize();
-        if (Files.exists(projectConfig)) {
-            return projectConfig;
-        }
+        if (Files.exists(projectConfig)) return projectConfig;
         return Paths.get(System.getProperty("user.home"), ".relay-orchestrator", "config.yml");
     }
-
-    private String githubToken = "";
-    private String workspaceDir = "";
-    private String model = "gpt-4o";
-    private int requestBudget = 20;
-    private String provider = "GITHUB_COPILOT";
-    private final List<RepositoryConfig> repositories = new ArrayList<>();
 
     @PostConstruct
     public void init() {
@@ -60,7 +66,7 @@ public class AppConfigManager {
     @SuppressWarnings("unchecked")
     public synchronized void loadSettingsFromDisk() {
         if (!Files.exists(configPath)) {
-            log.info("No configuration file found at {}. Initializing defaults.", configPath);
+            log.info("No configuration file at {}. Initializing defaults.", configPath);
             this.repositories.clear();
             addDefaultBackendRepositoryIfPresent();
             flushSettingsToDisk();
@@ -68,63 +74,72 @@ public class AppConfigManager {
         }
 
         try (InputStream input = Files.newInputStream(configPath)) {
-            Yaml yaml = new Yaml();
-            Map<String, Object> data = yaml.load(input);
+            Map<String, Object> data = new Yaml().load(input);
             if (data == null) {
                 this.repositories.clear();
                 addDefaultBackendRepositoryIfPresent();
                 return;
             }
 
-            this.githubToken = (String) data.getOrDefault("githubToken", "");
-            this.workspaceDir = (String) data.getOrDefault("workspaceDir", "");
-            this.model = (String) data.getOrDefault("model", "gpt-4o");
-            this.provider = String.valueOf(data.getOrDefault("provider", "GITHUB_COPILOT"));
-            this.requestBudget = (Integer) data.getOrDefault("requestBudget", 20);
+            // YAML `key:` (empty value) yields a null in the map. getOrDefault does
+            // NOT substitute the default when the key exists with null. Route every
+            // scalar through str()/intOr().
+            this.githubToken   = str(data.get("githubToken"), "");
+            this.workspaceDir  = str(data.get("workspaceDir"), "");
+            this.model         = str(data.get("model"), "gpt-4o");
+            this.provider      = str(data.get("provider"), "GITHUB_COPILOT");
+            this.requestBudget = intOr(data.get("requestBudget"), 20);
 
             this.repositories.clear();
             List<Map<String, Object>> repoList = (List<Map<String, Object>>) data.get("repositories");
             if (repoList != null) {
                 for (Map<String, Object> repoMap : repoList) {
                     RepositoryConfig repo = new RepositoryConfig();
-                    repo.setId((String) repoMap.get("id"));
-                    repo.setPath((String) repoMap.get("path"));
+                    repo.setId(str(repoMap.get("id"), null));
+                    repo.setPath(str(repoMap.get("path"), null));
 
-                    if (repoMap.get("sourceType") != null) {
-                        repo.setSourceType(SourceType.valueOf((String) repoMap.get("sourceType")));
-                    }
-                    if (repoMap.get("status") != null) {
-                        repo.setStatus(RepoStatus.valueOf((String) repoMap.get("status")));
-                    }
-                    if (repoMap.get("lastIndexed") != null) {
-                        repo.setLastIndexed(LocalDateTime.parse((String) repoMap.get("lastIndexed"),
+                    String st = str(repoMap.get("sourceType"), null);
+                    if (st != null) repo.setSourceType(SourceType.valueOf(st));
+
+                    String rs = str(repoMap.get("status"), null);
+                    if (rs != null) repo.setStatus(RepoStatus.valueOf(rs));
+
+                    String li = str(repoMap.get("lastIndexed"), null);
+                    if (li != null) {
+                        repo.setLastIndexed(LocalDateTime.parse(li,
                                 DateTimeFormatter.ISO_LOCAL_DATE_TIME));
                     }
                     this.repositories.add(repo);
                 }
             }
-            if (this.repositories.isEmpty()) {
-                addDefaultBackendRepositoryIfPresent();
-            }
+            if (this.repositories.isEmpty()) addDefaultBackendRepositoryIfPresent();
 
             this.agentConfig = parseAgentConfig(data.get("agents"));
 
             log.info("Agent config: enabled={} roles={} searchPaths={}",
-                    agentConfig.enabled(),
-                    agentConfig.roleToPersona(),
-                    agentConfig.searchPaths());
-
-            log.info("Successfully loaded {} repositories from settings config.", repositories.size());
+                    agentConfig.enabled(), agentConfig.roleToPersona(), agentConfig.searchPaths());
+            log.info("Loaded {} repositories from config.", repositories.size());
         } catch (Exception e) {
-            log.error("Failed to safely read config.yml file from folder context structure", e);
+            log.error("Failed to load config from {}", configPath, e);
         }
+    }
+
+    private static String str(Object v, String fallback) {
+        if (v == null) return fallback;
+        String s = String.valueOf(v);
+        return s.isEmpty() ? fallback : s;
+    }
+
+    private static int intOr(Object v, int fallback) {
+        if (v instanceof Number n) return n.intValue();
+        if (v == null) return fallback;
+        try { return Integer.parseInt(String.valueOf(v).trim()); }
+        catch (NumberFormatException e) { return fallback; }
     }
 
     @SuppressWarnings("unchecked")
     private AgentConfig parseAgentConfig(Object raw) {
-        if (!(raw instanceof Map<?, ?> rawMap)) {
-            return AgentConfig.defaults();
-        }
+        if (!(raw instanceof Map<?, ?> rawMap)) return AgentConfig.defaults();
         Map<String, Object> block = (Map<String, Object>) rawMap;
 
         boolean enabled = Boolean.TRUE.equals(block.get("enabled"));
@@ -134,7 +149,7 @@ public class AppConfigManager {
             searchPaths = list.stream().map(String::valueOf).toList();
         }
 
-        Map<AgentRole, String> roleToPersona = new java.util.EnumMap<>(AgentRole.class);
+        Map<AgentRole, String> roleToPersona = new EnumMap<>(AgentRole.class);
         if (block.get("roles") instanceof Map<?, ?> roles) {
             for (Map.Entry<?, ?> e : roles.entrySet()) {
                 try {
@@ -146,7 +161,7 @@ public class AppConfigManager {
             }
         }
 
-        Map<String, AgentConfig.PersonaOverride> overrides = new java.util.HashMap<>();
+        Map<String, AgentConfig.PersonaOverride> overrides = new HashMap<>();
         if (block.get("overrides") instanceof Map<?, ?> ovr) {
             for (Map.Entry<?, ?> e : ovr.entrySet()) {
                 String name = String.valueOf(e.getKey());
@@ -161,24 +176,16 @@ public class AppConfigManager {
             }
         }
 
-        Object fallbackRaw = block.get("fallbackPersona");
-        String fallback = fallbackRaw != null ? String.valueOf(fallbackRaw) : "generic";
-
+        String fallback = str(block.get("fallbackPersona"), "generic");
         return new AgentConfig(enabled, searchPaths, roleToPersona, overrides, fallback);
     }
 
     private void addDefaultBackendRepositoryIfPresent() {
         Path backendDir = Paths.get(System.getProperty("user.dir")).resolve("../backend").normalize();
-        if (!Files.isDirectory(backendDir)) {
-            return;
-        }
-
+        if (!Files.isDirectory(backendDir)) return;
         for (RepositoryConfig repo : this.repositories) {
-            if ("backend".equals(repo.getId())) {
-                return;
-            }
+            if ("backend".equals(repo.getId())) return;
         }
-
         RepositoryConfig repo = new RepositoryConfig();
         repo.setId("backend");
         repo.setPath(backendDir.toString());
@@ -238,14 +245,13 @@ public class AppConfigManager {
             DumperOptions options = new DumperOptions();
             options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
             options.setPrettyFlow(true);
-            Yaml yaml = new Yaml(options);
 
             try (FileWriter writer = new FileWriter(configPath.toFile())) {
-                yaml.dump(rawData, writer);
+                new Yaml(options).dump(rawData, writer);
             }
-            log.debug("Successfully saved state alterations back to config.yml file.");
+            log.debug("Saved config to {}", configPath);
         } catch (Exception e) {
-            log.error("Critical error encountered writing application property updates back to disk targets", e);
+            log.error("Failed to write config to {}", configPath, e);
         }
     }
 
@@ -259,86 +265,42 @@ public class AppConfigManager {
         return cfg;
     }
 
-    /**
-     * Null-safe merge. Fields left null/blank on the incoming config are treated
-     * as "no change" so a partially-bound settings form can never wipe stored
-     * credentials on disk. This is the fix for the split-brain bug where an empty
-     * GitHub token field cleared the persisted token on save.
-     */
     public synchronized void updateFrom(ConnectionConfig cfg) {
         if (cfg == null) {
             log.warn("updateFrom called with null config; ignoring.");
             return;
         }
-
-        if (cfg.getProvider() != null) {
-            this.provider = cfg.getProvider().name();
-        }
+        if (cfg.getProvider() != null) this.provider = cfg.getProvider().name();
         if (cfg.getGithubToken() != null && !cfg.getGithubToken().isBlank()) {
             this.githubToken = cfg.getGithubToken();
         }
-        if (cfg.getModel() != null && !cfg.getModel().isBlank()) {
-            this.model = cfg.getModel();
-        }
-        if (cfg.getWorkspaceDir() != null) {
+        if (cfg.getModel() != null && !cfg.getModel().isBlank()) this.model = cfg.getModel();
+        if (cfg.getWorkspaceDir() != null && !cfg.getWorkspaceDir().isBlank()) {
             this.workspaceDir = cfg.getWorkspaceDir();
         }
-        if (cfg.getRequestBudget() > 0) {
-            this.requestBudget = cfg.getRequestBudget();
-        }
+        if (cfg.getRequestBudget() > 0) this.requestBudget = cfg.getRequestBudget();
 
         flushSettingsToDisk();
+        events.publishEvent(new ConfigChangedEvent());
     }
 
     private ConnectionConfig.Provider parseProvider(String raw) {
-        try {
-            return ConnectionConfig.Provider.valueOf(raw);
-        } catch (IllegalArgumentException | NullPointerException e) {
+        try { return ConnectionConfig.Provider.valueOf(raw); }
+        catch (IllegalArgumentException | NullPointerException e) {
             return ConnectionConfig.Provider.GITHUB_COPILOT;
         }
     }
 
-    public String getGithubToken() {
-        return githubToken;
-    }
-
-    public void setGithubToken(String token) {
-        this.githubToken = token;
-    }
-
-    public String getWorkspaceDir() {
-        return workspaceDir;
-    }
-
-    public void setWorkspaceDir(String dir) {
-        this.workspaceDir = dir;
-    }
-
-    public String getModel() {
-        return model;
-    }
-
-    public void setModel(String model) {
-        this.model = model;
-    }
-
-    public String getProvider() {
-        return provider;
-    }
-
-    public void setProvider(String provider) {
-        this.provider = provider;
-    }
-
-    public int getRequestBudget() {
-        return requestBudget;
-    }
-
-    public void setRequestBudget(int budget) {
-        this.requestBudget = budget;
-    }
-
-    public List<RepositoryConfig> getRepositories() {
-        return repositories;
-    }
+    public AgentConfig getAgentConfig() { return agentConfig; }
+    public String getGithubToken() { return githubToken; }
+    public void setGithubToken(String token) { this.githubToken = token; }
+    public String getWorkspaceDir() { return workspaceDir; }
+    public void setWorkspaceDir(String dir) { this.workspaceDir = dir; }
+    public String getModel() { return model; }
+    public void setModel(String model) { this.model = model; }
+    public String getProvider() { return provider; }
+    public void setProvider(String provider) { this.provider = provider; }
+    public int getRequestBudget() { return requestBudget; }
+    public void setRequestBudget(int budget) { this.requestBudget = budget; }
+    public List<RepositoryConfig> getRepositories() { return repositories; }
 }

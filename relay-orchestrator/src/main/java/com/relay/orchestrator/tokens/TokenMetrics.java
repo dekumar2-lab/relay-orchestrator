@@ -28,12 +28,14 @@ public record TokenMetrics(
         LocalDateTime createdAt) {
 
     public double inputReductionPct() {
-        if (inputTokensBefore == 0) return 0.0;
+        if (inputTokensBefore == 0)
+            return 0.0;
         return 100.0 * (inputTokensBefore - inputTokensAfter) / inputTokensBefore;
     }
 
     public double outputReductionPct() {
-        if (outputTokensBefore == 0) return 0.0;
+        if (outputTokensBefore == 0)
+            return 0.0;
         return 100.0 * (outputTokensBefore - outputTokensAfter) / outputTokensBefore;
     }
 }

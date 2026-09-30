@@ -4,57 +4,16 @@
 <body>
     <div th:fragment="content" x-data="pipelinePage()" x-init="init()">
 
-        <!-- ============================================================
-         LEFT COLUMN
-         ============================================================ -->
-        <!-- Stepper — full width, sticks to top of scroll area -->
-            <!-- Fixed stepper — pinned under header, right of sidebar -->
-    <div class="fixed left-64 right-0 top-16 z-30 bg-slate-50 border-b border-slate-200 px-6 py-2">
-        <div class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm overflow-x-auto">
-            <template x-for="(stage, idx) in stages" :key="stage.name">
-                <div class="flex items-center gap-1.5 shrink-0">
-                    <div class="flex items-center gap-1.5">
-                        <span class="flex h-3.5 w-3.5 items-center justify-center shrink-0">
-                            <svg x-show="stage.state === 'done'"
-                                 class="h-3 w-3 text-emerald-500" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd"
-                                      d="M16.704 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.411 0z"
-                                      clip-rule="evenodd"/>
-                            </svg>
-                            <span x-show="stage.state === 'active'"
-                                  class="h-3 w-3 rounded-full border-2 border-blue-600 border-t-transparent animate-spin"></span>
-                            <span x-show="stage.state === 'waiting'"
-                                  class="h-2.5 w-2.5 rounded-full bg-amber-400 animate-pulse"></span>
-                            <span x-show="stage.state === 'queued'"
-                                  class="h-1.5 w-1.5 rounded-full bg-slate-300"></span>
-                        </span>
-                        <span class="text-[11px] font-medium whitespace-nowrap"
-                              :class="stage.state === 'active' ? 'text-slate-900' :
-                                      (stage.state === 'done' ? 'text-slate-600' : 'text-slate-400')"
-                              x-text="stage.name"></span>
-                    </div>
-                    <template x-if="idx < stages.length - 1">
-                        <span class="text-slate-300 text-[10px]">›</span>
-                    </template>
-                </div>
-            </template>
+        <!-- Fixed stepper -->
+        <div class="fixed left-64 right-0 top-16 z-30 bg-slate-50 border-b border-slate-200 px-6 py-2">
+            
         </div>
-    </div>
 
-    <!-- Spacer to reserve space for the fixed bar -->
-    <div style="height: 52px;"></div>
 
-        <!-- ============================================================
-         TWO-COLUMN GRID
-         ============================================================ -->
         <div class="grid grid-cols-3 gap-5">
-
-            <!-- ============================================================
-         LEFT COLUMN: Story, Session, Plan, Review
-         ============================================================ -->
             <div class="col-span-2 space-y-5">
 
-                <!-- Feature Story Command Input -->
+                <!-- Feature Story Input -->
                 <section class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     <div class="px-5 py-3 border-b border-slate-100 flex items-start justify-between gap-3">
                         <div class="min-w-0">
@@ -66,7 +25,6 @@
                             <p class="text-[12px] text-slate-500 mt-0.5">Paste Jira / GitHub ticket or freeform
                                 requirement</p>
                         </div>
-
                         <div class="flex items-center gap-2 shrink-0">
                             <div class="relative" x-data="{ open: false }">
                                 <button type="button" @click="open = !open; if (open) loadRecent()"
@@ -74,7 +32,6 @@
                                     <span class="material-symbols-outlined text-[14px]">history</span>
                                     <span>Recent</span>
                                 </button>
-
                                 <div x-show="open" @click.outside="open = false" x-cloak
                                     class="absolute right-0 top-full mt-1 w-80 bg-white border border-slate-200 rounded-lg shadow-lg z-40 overflow-hidden">
                                     <div class="px-3 py-2 border-b border-slate-100 bg-slate-50">
@@ -105,14 +62,10 @@
                                     </div>
                                 </div>
                             </div>
-
                             <span
-                                class="inline-flex items-center px-2 py-0.5 rounded-full font-mono text-[11px] bg-slate-100 text-slate-600">
-                                v2.orchestrate
-                            </span>
+                                class="inline-flex items-center px-2 py-0.5 rounded-full font-mono text-[11px] bg-slate-100 text-slate-600">v2.orchestrate</span>
                         </div>
                     </div>
-
                     <div class="p-5 space-y-3">
                         <div class="rounded-lg bg-slate-50 p-3">
                             <textarea x-model="story" rows="4" :disabled="running"
@@ -126,7 +79,6 @@
                                 <span class="text-slate-400" x-text="story.length + ' chars'"></span>
                             </div>
                         </div>
-
                         <div class="flex items-center justify-between gap-2">
                             <button type="button" @click="loadSample()"
                                 class="h-8 px-3 rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 font-medium text-[13px] flex items-center gap-1.5 transition">
@@ -142,7 +94,6 @@
                                 <span x-text="running ? 'Analyzing...' : 'Start Clarification'"></span>
                             </button>
                         </div>
-
                         <div x-show="error" x-text="error"
                             class="rounded-md bg-red-50 border border-red-200 p-2.5 text-[12px] text-red-700 font-mono">
                         </div>
@@ -152,7 +103,6 @@
                 <!-- Active Session Card -->
                 <section x-show="session" x-cloak
                     class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-
                     <div class="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
                         <div class="flex items-center gap-2 min-w-0">
                             <button type="button" @click="copySessionId()"
@@ -191,7 +141,6 @@
                                         Awaiting your answers</p>
                                     <p class="text-[13px] text-slate-700 leading-relaxed" x-text="session.summary"></p>
                                 </div>
-
                                 <div class="space-y-3">
                                     <template x-for="(q, idx) in (session.questions || [])" :key="q.id">
                                         <div class="rounded-lg bg-slate-50 border border-slate-200 p-4 space-y-3">
@@ -202,7 +151,6 @@
                                                 <p class="text-[14px] font-medium text-slate-900 leading-snug"
                                                     x-html="renderInline(q.question)"></p>
                                             </div>
-
                                             <template x-if="q.options && q.options.length > 0">
                                                 <div class="space-y-1.5">
                                                     <template x-for="opt in q.options" :key="opt.label || opt">
@@ -227,13 +175,11 @@
                                                     </template>
                                                 </div>
                                             </template>
-
                                             <input type="text" x-model="answers[q.id]" placeholder="Your answer..."
                                                 class="w-full h-8 px-3 rounded-md bg-white border border-slate-200 font-mono text-[12px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
                                         </div>
                                     </template>
                                 </div>
-
                                 <div>
                                     <label
                                         class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">Additional
@@ -241,7 +187,6 @@
                                     <input type="text" x-model="additionalContext" placeholder="Any other notes..."
                                         class="w-full h-8 px-3 rounded-md bg-white border border-slate-200 font-mono text-[12px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
                                 </div>
-
                                 <div class="flex justify-end">
                                     <button type="button" @click="submitAnswers()"
                                         :disabled="submitting || !allAnswered || busy()"
@@ -257,7 +202,7 @@
                             </div>
                         </template>
 
-                        <!-- READY_TO_IMPLEMENT -->
+                        <!-- READY_TO_IMPLEMENT with intent branches -->
                         <template x-if="session && session.stage === 'READY_TO_IMPLEMENT'">
                             <div class="space-y-4">
                                 <div class="rounded-lg bg-emerald-50 border border-emerald-200 p-4">
@@ -328,7 +273,8 @@
                                     </div>
                                 </div>
 
-                                <template x-if="!plan">
+                                <!-- PLAN -->
+                                <template x-if="intent === 'PLAN' && !plan">
                                     <div class="flex justify-end">
                                         <button type="button" @click="generatePlan()"
                                             :disabled="generatingPlan || busy()"
@@ -341,6 +287,185 @@
                                             <span
                                                 x-text="generatingPlan ? 'Generating plan...' : 'Generate Plan'"></span>
                                         </button>
+                                    </div>
+                                </template>
+
+                                <!-- FIX -->
+                                <template x-if="intent === 'FIX'">
+                                    <div class="space-y-3">
+                                        <div class="rounded-lg bg-amber-50 border border-amber-200 p-3">
+                                            <div class="flex items-center gap-2">
+                                                <span
+                                                    class="material-symbols-outlined text-amber-700 text-[16px]">bolt</span>
+                                                <p
+                                                    class="text-[11px] font-semibold uppercase tracking-wider text-amber-800">
+                                                    Fast path</p>
+                                            </div>
+                                            <p class="text-[12px] text-slate-700 mt-1">
+                                                This looks like a small fix. The implementer will run directly — no plan
+                                                approval needed. Review the diff before applying.
+                                            </p>
+                                        </div>
+                                        <div class="flex justify-end">
+                                            <button type="button" @click="runFix()" :disabled="implementing || busy()"
+                                                class="h-9 px-5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[13px] flex items-center gap-2 transition"
+                                                style="min-width: 180px; justify-content: center;">
+                                                <span class="material-symbols-outlined text-[16px]"
+                                                    :class="implementing ? 'animate-spin' : ''"
+                                                    x-text="implementing ? 'autorenew' : 'build'"></span>
+                                                <span x-text="implementing ? 'Running fix...' : 'Run Fix'"></span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </template>
+
+                                <!-- EXPLAIN -->
+                                <template x-if="intent === 'EXPLAIN'">
+                                    <div class="space-y-3">
+                                        <div class="rounded-lg bg-blue-50 border border-blue-200 p-3">
+                                            <p class="text-[11px] font-semibold uppercase tracking-wider text-blue-800">
+                                                Analysis only</p>
+                                            <p class="text-[12px] text-slate-700 mt-1">
+                                                This is an explanatory query. No code will be changed. The analysis
+                                                artifact is generated in full and available for download.
+                                            </p>
+                                        </div>
+                                        <div class="flex justify-end">
+                                            <button type="button" @click="generateExplain()"
+                                                :disabled="generatingExplain"
+                                                class="h-9 px-5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[13px] flex items-center gap-2 transition"
+                                                style="min-width: 220px; justify-content: center;">
+                                                <span class="material-symbols-outlined text-[16px]"
+                                                    x-show="!generatingExplain">psychology</span>
+                                                <span class="material-symbols-outlined text-[16px] animate-spin"
+                                                    x-show="generatingExplain">autorenew</span>
+                                                <span
+                                                    x-text="generatingExplain ? 'Analyzing...' : 'Generate Explanation'"></span>
+                                            </button>
+                                        </div>
+                                        <template x-if="explainArtifact">
+                                            <div class="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                                                <div
+                                                    class="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                                                    <div class="flex items-center gap-2">
+                                                        <span
+                                                            class="material-symbols-outlined text-[16px] text-blue-600">psychology</span>
+                                                        <span
+                                                            class="text-[13px] font-semibold text-slate-900">Analysis</span>
+                                                        <span class="text-[10px] font-mono text-slate-500"
+                                                            x-text="explainArtifact.shortId"></span>
+                                                    </div>
+                                                    <a :href="'/artifact/' + explainArtifact.id + '/download'"
+                                                        class="h-6 w-6 rounded flex items-center justify-center text-slate-500 hover:text-blue-700 hover:bg-white transition"
+                                                        title="Download as markdown">
+                                                        <span
+                                                            class="material-symbols-outlined text-[14px]">download</span>
+                                                    </a>
+                                                </div>
+                                                <div class="bg-white px-5 py-4 md-body"
+                                                    x-html="renderMarkdown(explainArtifact.content)"></div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+
+                                <!-- DOCUMENT -->
+                                <template x-if="intent === 'DOCUMENT'">
+                                    <div class="space-y-3">
+                                        <div class="rounded-lg bg-emerald-50 border border-emerald-200 p-3">
+                                            <p
+                                                class="text-[11px] font-semibold uppercase tracking-wider text-emerald-800">
+                                                Documentation only</p>
+                                            <p class="text-[12px] text-slate-700 mt-1">
+                                                No code will change. The generated doc is available for download.
+                                            </p>
+                                        </div>
+                                        <div class="flex justify-end">
+                                            <button type="button" @click="generateDoc()" :disabled="generatingDoc"
+                                                class="h-9 px-5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[13px] flex items-center gap-2 transition"
+                                                style="min-width: 180px; justify-content: center;">
+                                                <span class="material-symbols-outlined text-[16px]"
+                                                    x-show="!generatingDoc">description</span>
+                                                <span class="material-symbols-outlined text-[16px] animate-spin"
+                                                    x-show="generatingDoc">autorenew</span>
+                                                <span x-text="generatingDoc ? 'Generating...' : 'Generate Docs'"></span>
+                                            </button>
+                                        </div>
+                                        <template x-if="docArtifact">
+                                            <div class="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                                                <div
+                                                    class="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                                                    <div class="flex items-center gap-2">
+                                                        <span
+                                                            class="material-symbols-outlined text-[16px] text-emerald-600">description</span>
+                                                        <span
+                                                            class="text-[13px] font-semibold text-slate-900">Documentation</span>
+                                                        <span class="text-[10px] font-mono text-slate-500"
+                                                            x-text="docArtifact.shortId"></span>
+                                                    </div>
+                                                    <a :href="'/artifact/' + docArtifact.id + '/download'"
+                                                        class="h-6 w-6 rounded flex items-center justify-center text-slate-500 hover:text-blue-700 hover:bg-white transition"
+                                                        title="Download as markdown">
+                                                        <span
+                                                            class="material-symbols-outlined text-[14px]">download</span>
+                                                    </a>
+                                                </div>
+                                                <div class="bg-white px-5 py-4 md-body"
+                                                    x-html="renderMarkdown(docArtifact.content)"></div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+
+                                <!-- REVIEW -->
+                                <template x-if="intent === 'REVIEW'">
+                                    <div class="space-y-3">
+                                        <div class="rounded-lg bg-slate-50 border border-slate-200 p-3">
+                                            <p
+                                                class="text-[11px] font-semibold uppercase tracking-wider text-slate-700">
+                                                Code review</p>
+                                            <p class="text-[12px] text-slate-600 mt-1">
+                                                The reviewer will audit the file(s) named in the story.
+                                            </p>
+                                        </div>
+                                        <div class="flex justify-end">
+                                            <button type="button" @click="generateReview()" :disabled="busy()"
+                                                class="h-9 px-5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[13px] flex items-center gap-2 transition"
+                                                style="min-width: 200px; justify-content: center;">
+                                                <span class="material-symbols-outlined text-[16px]"
+                                                    :class="pendingIs('Review') ? 'animate-spin' : ''"
+                                                    x-text="pendingIs('Review') ? 'autorenew' : 'rule'"></span>
+                                                <span
+                                                    x-text="pendingIs('Review') ? 'Reviewing...' : 'Generate Review'"></span>
+                                            </button>
+                                        </div>
+                                        <template x-if="review">
+                                            <div class="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                                                <div
+                                                    class="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                                                    <div class="flex items-center gap-2">
+                                                        <span
+                                                            class="material-symbols-outlined text-[16px] text-slate-700">rule</span>
+                                                        <span
+                                                            class="text-[13px] font-semibold text-slate-900">Review</span>
+                                                        <span class="text-[10px] font-mono text-slate-500"
+                                                            x-text="review.shortId"></span>
+                                                        <span
+                                                            class="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full"
+                                                            :class="verdictBadge(review.verdict)"
+                                                            x-text="review.verdict"></span>
+                                                    </div>
+                                                    <a :href="'/artifact/' + review.id + '/download'"
+                                                        class="h-6 w-6 rounded flex items-center justify-center text-slate-500 hover:text-blue-700 hover:bg-white transition"
+                                                        title="Download as markdown">
+                                                        <span
+                                                            class="material-symbols-outlined text-[14px]">download</span>
+                                                    </a>
+                                                </div>
+                                                <div class="bg-white px-5 py-4 md-body"
+                                                    x-html="renderMarkdown(review.content)"></div>
+                                            </div>
+                                        </template>
                                     </div>
                                 </template>
                             </div>
@@ -373,7 +498,6 @@
                 <!-- Plan card -->
                 <template x-if="plan">
                     <div class="rounded-xl border shadow-sm overflow-hidden" :class="planStatusBadge(plan.status)">
-
                         <div class="px-4 py-2.5 flex items-center justify-between gap-3 border-b cursor-pointer hover:opacity-90 transition"
                             :class="planStatusBadge(plan.status)" @click="planExpanded = !planExpanded">
                             <div class="flex items-center gap-2 min-w-0">
@@ -395,33 +519,20 @@
                                 </a>
                             </div>
                         </div>
-
                         <div x-show="planExpanded" x-collapse>
-                            <div class="bg-white px-5 py-4 prose prose-sm max-w-none
-                                prose-headings:text-slate-900 prose-headings:font-semibold
-                                prose-p:text-slate-700 prose-li:text-slate-700
-                                prose-code:text-blue-700 prose-code:bg-slate-100
-                                prose-code:px-1 prose-code:rounded prose-code:font-mono
-                                prose-code:text-[12px] prose-strong:text-slate-900"
-                                x-html="renderMarkdown(plan.content)">
-                            </div>
-
+                            <div class="bg-white px-5 py-4 md-body" x-html="renderMarkdown(plan.content)"></div>
                             <div x-show="artifactError" x-text="artifactError"
                                 class="px-4 py-2 bg-red-50 border-t border-red-200 text-[12px] text-red-700 font-mono">
                             </div>
 
-                            <!-- DRAFT -->
                             <template x-if="plan.status === 'DRAFT'">
                                 <div
                                     class="px-4 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3">
-                                    <p class="text-[11px] text-slate-500 italic">
-                                        Review the plan before implementing. Approving unlocks the implementer.
-                                    </p>
+                                    <p class="text-[11px] text-slate-500 italic">Review the plan before implementing.
+                                        Approving unlocks the implementer.</p>
                                     <div class="flex items-center gap-2">
                                         <button type="button" @click="rejectPlan()" :disabled="busy()"
-                                            class="h-8 px-3 rounded-md bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] transition">
-                                            Reject
-                                        </button>
+                                            class="h-8 px-3 rounded-md bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] transition">Reject</button>
                                         <button type="button" @click="approvePlan()" :disabled="busy()"
                                             class="h-8 px-4 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
                                             <span class="material-symbols-outlined text-[14px]">check</span>
@@ -431,12 +542,10 @@
                                 </div>
                             </template>
 
-                            <!-- APPROVED -->
                             <template x-if="plan.status === 'APPROVED'">
                                 <div
                                     class="px-4 py-3 bg-emerald-50 border-t border-emerald-200 flex items-center justify-between gap-3">
-                                    <p class="text-[11px] text-emerald-800">
-                                        Plan approved. Ready to run the implementer.
+                                    <p class="text-[11px] text-emerald-800">Plan approved. Ready to run the implementer.
                                     </p>
                                     <button type="button" @click="runImplementer()" :disabled="busy()"
                                         class="h-8 px-4 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition"
@@ -450,12 +559,10 @@
                                 </div>
                             </template>
 
-                            <!-- REJECTED -->
                             <template x-if="plan.status === 'REJECTED'">
                                 <div
                                     class="px-4 py-3 bg-red-50 border-t border-red-200 flex items-center justify-between gap-3">
-                                    <p class="text-[11px] text-red-800">
-                                        Plan rejected. Generate a new one to try again.
+                                    <p class="text-[11px] text-red-800">Plan rejected. Generate a new one to try again.
                                     </p>
                                     <button type="button" @click="generatePlan()" :disabled="busy()"
                                         class="h-8 px-4 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
@@ -468,13 +575,10 @@
                                 </div>
                             </template>
 
-                            <!-- EXECUTED -->
                             <template x-if="plan.status === 'EXECUTED'">
                                 <div
                                     class="px-4 py-3 bg-blue-50 border-t border-blue-200 flex items-center justify-between gap-3">
-                                    <p class="text-[11px] text-blue-800">
-                                        Plan has been executed.
-                                    </p>
+                                    <p class="text-[11px] text-blue-800">Plan has been executed.</p>
                                     <button type="button" @click="runImplementer()" :disabled="busy()"
                                         class="h-8 px-4 rounded-md bg-white border border-blue-300 text-blue-700 hover:bg-blue-100 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 transition">
                                         <span class="material-symbols-outlined text-[14px]"
@@ -493,7 +597,6 @@
                 <template x-if="session && session.stage === 'IMPLEMENTATION_READY'">
                     <div class="rounded-xl border shadow-sm overflow-hidden"
                         :class="review ? verdictBadge(review.verdict) : 'border-slate-200 bg-white'">
-
                         <div class="px-4 py-2.5 flex items-center justify-between gap-3 border-b"
                             :class="review ? verdictBadge(review.verdict) : 'bg-slate-50 border-slate-200'">
                             <div class="flex items-center gap-2 min-w-0">
@@ -515,40 +618,26 @@
                                 </a>
                             </div>
                         </div>
-
                         <template x-if="review">
-                            <div class="bg-white px-5 py-4 prose prose-sm max-w-none
-                                prose-headings:text-slate-900 prose-headings:font-semibold
-                                prose-p:text-slate-700 prose-li:text-slate-700
-                                prose-code:text-blue-700 prose-code:bg-slate-100
-                                prose-code:px-1 prose-code:rounded prose-code:font-mono
-                                prose-code:text-[12px] prose-strong:text-slate-900"
-                                x-html="renderMarkdown(review.content)">
-                            </div>
+                            <div class="bg-white px-5 py-4 md-body" x-html="renderMarkdown(review.content)"></div>
                         </template>
-
                         <template x-if="!review">
                             <div class="px-5 py-4 text-[13px] text-slate-600">
                                 The implementer produced a diff. Generate a review to have
                                 <span class="font-medium text-slate-800">dwight</span> audit it before you apply.
                             </div>
                         </template>
-
                         <div x-show="artifactError" x-text="artifactError"
                             class="px-4 py-2 bg-red-50 border-t border-red-200 text-[12px] text-red-700 font-mono">
                         </div>
-
                         <div class="px-4 py-3 border-t bg-slate-50 flex items-center justify-between gap-3">
                             <p class="text-[11px] text-slate-500 italic">
                                 <span x-show="!review">Review the diff before applying.</span>
-                                <span x-show="review && review?.verdict === 'APPROVE'">
-                                    Review passed. Ready to apply.
-                                </span>
-                                <span x-show="review && review?.verdict && review?.verdict !== 'APPROVE'">
-                                    Review found issues. Re-implement with the feedback.
-                                </span>
+                                <span x-show="review && review?.verdict === 'APPROVE'">Review passed. Ready to
+                                    apply.</span>
+                                <span x-show="review && review?.verdict && review?.verdict !== 'APPROVE'">Review found
+                                    issues. Re-implement with the feedback.</span>
                             </p>
-
                             <div class="flex items-center gap-2">
                                 <button x-show="!review" type="button" @click="generateReview()" :disabled="busy()"
                                     class="h-8 px-4 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
@@ -557,7 +646,6 @@
                                         x-text="pendingIs('Review') ? 'autorenew' : 'rule'"></span>
                                     <span x-text="pendingIs('Review') ? 'Reviewing...' : 'Generate Review'"></span>
                                 </button>
-
                                 <button x-show="review && review?.verdict && review?.verdict !== 'APPROVE'"
                                     type="button" @click="reimplement()" :disabled="busy()"
                                     class="h-8 px-4 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
@@ -567,7 +655,6 @@
                                     <span
                                         x-text="pendingIs('Implement') ? 'Re-implementing...' : 'Re-implement with Feedback'"></span>
                                 </button>
-
                                 <a :href="'/code-preview?session=' + session.sessionId"
                                     class="h-8 px-4 rounded-md bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium text-[12px] flex items-center gap-1.5 transition">
                                     <span class="material-symbols-outlined text-[14px]">difference</span>
@@ -577,18 +664,135 @@
                         </div>
                     </div>
                 </template>
+
+                <!-- TEST RESULTS CARD -->
+                <template x-if="session && (session.stage === 'IMPLEMENTATION_READY' || session.stage === 'APPLIED')">
+                    <div class="rounded-xl border shadow-sm overflow-hidden" :class="testStatusClass()">
+                        <div class="px-4 py-2.5 flex items-center justify-between gap-3 border-b"
+                            :class="testStatusClass()">
+                            <div class="flex items-center gap-2 min-w-0">
+                                <span class="material-symbols-outlined text-[16px]">science</span>
+                                <span class="text-[13px] font-semibold">Tests</span>
+                                <template x-if="testResult">
+                                    <span
+                                        class="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/60 border border-current"
+                                        x-text="testResult.status.replace('_', ' ')"></span>
+                                </template>
+                            </div>
+                            <template x-if="testResult">
+                                <div class="font-mono text-[11px] text-slate-600">
+                                    <span class="text-emerald-700 font-semibold"
+                                        x-text="testResult.passedTests + ' passed'"></span>
+                                    ·
+                                    <span class="text-red-700 font-semibold"
+                                        x-text="testResult.failedTests + ' failed'"></span>
+                                    <span class="ml-2 text-slate-500"
+                                        x-text="(testResult.durationMs / 1000).toFixed(1) + 's'"></span>
+                                </div>
+                            </template>
+                        </div>
+
+                        <template x-if="testResult && testResult.failures && testResult.failures.length > 0">
+                            <div class="bg-white px-4 py-3 space-y-2 max-h-64 overflow-y-auto">
+                                <template x-for="(f, i) in testResult.failures.filter(x => x.kind !== 'SKIPPED')"
+                                    :key="i">
+                                    <div class="rounded-md bg-red-50 border border-red-200 p-2.5 font-mono text-[11px]">
+                                        <div class="flex items-center gap-2 mb-1">
+                                            <span class="font-semibold text-red-800"
+                                                x-text="f.className + '.' + f.testName"></span>
+                                            <span
+                                                class="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-white text-red-700"
+                                                x-text="f.kind"></span>
+                                        </div>
+                                        <p class="text-slate-700" x-text="f.message"></p>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+
+                        <template x-if="testResult && testResult.status === 'COMPILE_FAILED'">
+                            <div class="bg-white px-4 py-3">
+                                <p class="text-[12px] text-slate-600 mb-2">Compilation output (tail):</p>
+                                <pre class="bg-slate-900 text-slate-100 rounded-md p-3 text-[11px] font-mono overflow-x-auto max-h-48 whitespace-pre-wrap"
+                                    x-text="testResult.stdoutTail"></pre>
+                            </div>
+                        </template>
+
+                        <template x-if="testResult && testResult.status === 'TESTS_PASSED'">
+                            <div class="bg-white px-5 py-4 space-y-2">
+                                <div class="flex items-center gap-2">
+                                    <span
+                                        class="material-symbols-outlined text-emerald-600 text-[18px]">check_circle</span>
+                                    <p class="text-[13px] font-semibold text-slate-900">
+                                        Fix applied and verified
+                                    </p>
+                                </div>
+                                <p class="text-[12px] text-slate-600">
+                                    The diff has been written to disk in the indexed repository.
+                                    Open the project in your IDE and build to see it.
+                                </p>
+                                <div
+                                    class="rounded-md bg-slate-50 border border-slate-200 px-3 py-2 font-mono text-[11px] text-slate-700">
+                                    MODIFIED: src/main/java/com/relay/guardrail/TokenBudgetGuard.java
+                                </div>
+                            </div>
+                        </template>
+
+                        <template x-if="reimplementing">
+                            <div class="px-5 py-3 bg-blue-50 border-t border-blue-200 flex items-center gap-3">
+                                <span
+                                    class="material-symbols-outlined text-[16px] text-blue-600 animate-spin">autorenew</span>
+                                <span class="text-[13px] font-medium text-blue-800">
+                                    Re-implementing with feedback — watch the live log
+                                </span>
+                            </div>
+                        </template>
+                        <div
+                            class="px-4 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3 flex-wrap">
+                            <p class="text-[11px] text-slate-500 italic">
+                                <span x-show="!testResult">Run the tests to verify this diff compiles and passes.</span>
+                                <span x-show="testResult && testResult.status === 'TESTS_PASSED'">On disk. Undo to
+                                    revert.</span>
+                                <span x-show="testResult && testResult.status !== 'TESTS_PASSED'">Tests failed. Fix with
+                                    feedback or undo.</span>
+                            </p>
+                            <div class="flex items-center gap-2">
+                                <button x-show="testResult && testResult.status === 'TESTS_PASSED'" type="button"
+                                    @click="undoApply()" :disabled="busy()"
+                                    class="h-8 px-4 rounded-md bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 transition">
+                                    <span class="material-symbols-outlined text-[14px]">undo</span>
+                                    Undo
+                                </button>
+                                <button type="button" @click="runTests()" :disabled="runningTests || busy()"
+                                    class="h-8 px-4 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
+                                    <span class="material-symbols-outlined text-[14px]"
+                                        :class="runningTests ? 'animate-spin' : ''"
+                                        x-text="runningTests ? 'autorenew' : 'science'"></span>
+                                    <span
+                                        x-text="runningTests ? 'Running...' : (testResult ? 'Re-run Tests' : 'Run Tests')"></span>
+                                </button>
+                                <button x-show="testResult && testResult.status !== 'TESTS_PASSED'" type="button"
+                                    @click="reimplement()" :disabled="busy()"
+                                    class="h-8 px-4 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
+                                    <span class="material-symbols-outlined text-[14px]"
+                                        :class="pendingIs('Implement') ? 'animate-spin' : ''"
+                                        x-text="pendingIs('Implement') ? 'autorenew' : 'refresh'"></span>
+                                    <span
+                                        x-text="pendingIs('Implement') ? 'Re-implementing...' : 'Re-implement with Feedback'"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
             </div>
 
-            <!-- ============================================================
-         RIGHT COLUMN
-         ============================================================ -->
-            <div class="col-span-1 space-y-5">
+            <!-- RIGHT COLUMN -->
+            <!-- <div class="col-span-1 space-y-5">
                 <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
                     <div class="flex items-center gap-2">
                         <span class="material-symbols-outlined text-blue-600 text-[18px]">memory</span>
                         <h3 class="text-[14px] font-semibold text-slate-900">Token Pipeline</h3>
                     </div>
-
                     <div class="rounded-lg bg-slate-50 p-3 space-y-1">
                         <div class="flex items-center gap-1.5">
                             <span class="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
@@ -598,7 +802,6 @@
                             Configured on every call. Activates once the system prompt exceeds ~1024 tokens.
                         </p>
                     </div>
-
                     <div class="rounded-lg bg-slate-50 p-3 space-y-1 opacity-70">
                         <div class="flex items-center gap-1.5">
                             <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
@@ -608,7 +811,6 @@
                             Planned for Phase 3. Trims retrieved code chunks to fit the token budget.
                         </p>
                     </div>
-
                     <div class="pt-1 flex justify-end">
                         <a th:href="@{/token-tracker}"
                             class="inline-flex items-center gap-1 text-[13px] font-medium text-blue-700 hover:text-blue-800 transition">
@@ -617,14 +819,105 @@
                         </a>
                     </div>
                 </div>
-            </div> <!-- closes the new grid wrapper -->
-        </div> <!-- closes col-span-1 -->
+            </div> -->
+                        <!-- RIGHT COLUMN: pipeline journey -->
+            <div class="col-span-1">
+                <div class="sticky top-4 space-y-4 max-h-[calc(100vh-2rem)] overflow-y-auto pr-1">
+
+                    <!-- Pipeline Journey -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="material-symbols-outlined text-blue-600 text-[18px]">route</span>
+                                <h3 class="text-[14px] font-semibold text-slate-900">Pipeline</h3>
+                            </div>
+                            <span x-show="session"
+                                  class="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wider"
+                                  :class="intentBadgeClass()"
+                                  x-text="intent"></span>
+                        </div>
+
+                        <div class="px-4 py-3">
+                            <template x-for="(step, idx) in journey" :key="step.key">
+                                <div class="flex items-start gap-3">
+                                    <div class="flex flex-col items-center shrink-0" style="min-width: 20px;">
+                                        <div class="w-5 h-5 rounded-full flex items-center justify-center"
+                                             :class="stepDotClass(step.state)">
+                                            <template x-if="step.state === 'done'">
+                                                <span class="material-symbols-outlined text-[12px] text-white">check</span>
+                                            </template>
+                                            <template x-if="step.state === 'active'">
+                                                <span class="w-2 h-2 rounded-full bg-white animate-pulse"></span>
+                                            </template>
+                                            <template x-if="step.state === 'waiting'">
+                                                <span class="w-2 h-2 rounded-full bg-white"></span>
+                                            </template>
+                                            <template x-if="step.state === 'failed'">
+                                                <span class="material-symbols-outlined text-[12px] text-white">close</span>
+                                            </template>
+                                            <template x-if="step.state === 'queued'">
+                                                <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                                            </template>
+                                            <template x-if="step.state === 'optional'">
+                                                <span class="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+                                            </template>
+                                        </div>
+                                        <template x-if="idx < journey.length - 1">
+                                            <div class="w-px flex-1 my-0.5 min-h-[18px]"
+                                                 :class="step.state === 'done' ? 'bg-emerald-300' : 'bg-slate-200'"></div>
+                                        </template>
+                                    </div>
+
+                                    <div class="flex-1 min-w-0 pb-3">
+                                        <p class="text-[12px] font-semibold leading-tight"
+                                           :class="stepLabelClass(step.state)"
+                                           x-text="step.name"></p>
+                                        <p class="text-[10px] mt-0.5 leading-tight"
+                                           :class="step.state === 'optional' ? 'text-slate-400 italic' : 'text-slate-500'"
+                                           x-text="step.detail"></p>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <template x-if="!session">
+                                <p class="text-[11px] text-slate-400 italic pt-1">
+                                    Submit a story to see the pipeline.
+                                </p>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Token Pipeline (compact) -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-3">
+                        <div class="flex items-center gap-2">
+                            <span class="material-symbols-outlined text-blue-600 text-[16px]">memory</span>
+                            <h3 class="text-[13px] font-semibold text-slate-900">Token Pipeline</h3>
+                        </div>
+                        <div class="rounded-lg bg-slate-50 p-3 space-y-1">
+                            <div class="flex items-center gap-1.5">
+                                <span class="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                                <span class="text-[12px] font-medium text-slate-800">Prompt Caching</span>
+                            </div>
+                            <p class="text-[11px] text-slate-500 leading-relaxed">
+                                Active when system prompt exceeds ~1024 tokens.
+                            </p>
+                        </div>
+                        <div class="pt-1 flex justify-end">
+                            <a th:href="@{/token-tracker}"
+                               class="inline-flex items-center gap-1 text-[12px] font-medium text-blue-700 hover:text-blue-800 transition">
+                                View Token Tracker
+                                <span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- Alpine component -->
         <script>
             function pipelinePage() {
                 return {
-                    // --- core state ---
                     story: '',
                     running: false,
                     submitting: false,
@@ -639,7 +932,6 @@
                     copied: false,
                     previewOpen: false,
 
-                    // --- artifact state ---
                     artifacts: [],
                     plan: null,
                     review: null,
@@ -647,13 +939,20 @@
                     artifactError: '',
                     recent: [],
 
+                    testResult: null,
+                    runningTests: false,
+
+                    explainArtifact: null,
+                    docArtifact: null,
+                    generatingExplain: false,
+                    generatingDoc: false,
+
                     init() {
                         const params = new URLSearchParams(window.location.search);
                         const id = params.get('session') || localStorage.getItem('relay.lastSessionId');
                         if (id) this.restoreLastSession(id);
                     },
 
-                    // --- local stage getter (no store dependency) ---
                     get stages() {
                         const ORDER = ['Clarify', 'Plan', 'Approve', 'Implement', 'Review', 'Apply'];
                         const mk = (name, state) => ({ name, state });
@@ -663,50 +962,287 @@
                             return ORDER.map((name, i) =>
                                 mk(name, i < idx ? 'done' : (i === idx ? 'active' : 'queued')));
                         };
-
                         const stage = this.session?.stage || 'NEW';
 
-                        // Explicit terminal/waiting cases first
                         if (stage === 'BLOCKED' || stage === 'CAPPED' || stage === 'ERROR'
                             || stage === 'IMPLEMENTATION_FAILED') {
-                            return [
-                                mk('Clarify', 'done'),
-                                mk('Plan', 'done'),
-                                mk('Approve', 'done'),
-                                mk('Implement', 'active'),
-                                mk('Review', 'queued'),
-                                mk('Apply', 'queued')
-                            ];
+                            return [mk('Clarify', 'done'), mk('Plan', 'done'), mk('Approve', 'done'),
+                            mk('Implement', 'active'), mk('Review', 'queued'), mk('Apply', 'queued')];
                         }
-                        if (stage === 'APPLIED') {
-                            return ORDER.map(n => mk(n, 'done'));
-                        }
-                        if (stage === 'AWAITING_ANSWERS' || stage === 'NEW') {
-                            return stagesFor('Clarify');
-                        }
+                        if (stage === 'APPLIED') return ORDER.map(n => mk(n, 'done'));
+                        if (stage === 'AWAITING_ANSWERS' || stage === 'NEW') return stagesFor('Clarify');
 
-                        // Refine by artifact state
-                        if (this.plan && this.plan.status === 'DRAFT') {
-                            return stagesFor('Approve');     // waiting for user approval
-                        }
-                        if (this.plan && this.plan.status === 'APPROVED') {
-                            return stagesFor('Implement');   // ready to run
-                        }
+                        if (this.plan && this.plan.status === 'DRAFT') return stagesFor('Approve');
+                        if (this.plan && this.plan.status === 'APPROVED') return stagesFor('Implement');
                         if (this.plan && this.plan.status === 'EXECUTED') {
-                            if (!this.review) return stagesFor('Review');       // awaiting review
+                            if (!this.review) return stagesFor('Review');
                             if (this.review.verdict === 'APPROVE') return stagesFor('Apply');
-                            return stagesFor('Implement');   // request_changes → back to implement
-                        }
-
-                        // Session reached READY_TO_IMPLEMENT but no plan yet
-                        if (stage === 'READY_TO_IMPLEMENT') {
-                            return stagesFor('Plan');
-                        }
-                        if (stage === 'IMPLEMENTATION_RUNNING') {
                             return stagesFor('Implement');
                         }
-
+                        if (stage === 'READY_TO_IMPLEMENT') return stagesFor('Plan');
+                        if (stage === 'IMPLEMENTATION_RUNNING') return stagesFor('Implement');
                         return stagesFor('Clarify');
+                    },
+
+                    get intent() {
+                        return this.session?.recommendedIntent || 'PLAN';
+                    },
+
+                                        // ============================================================
+                    // Pipeline journey — computed steps per intent
+                    // ============================================================
+
+                    get journey() {
+                        const intent = this.intent;
+                        const s = this.session;
+                        const hasSession = !!s;
+                        const stage = s?.stage || 'NEW';
+                        const steps = [];
+
+                        // ---- Clarify ----
+                        let cState = 'queued';
+                        let cDetail = 'Submit a story to begin';
+                        if (this.running) {
+                            cState = 'active';
+                            cDetail = 'Analyzing story...';
+                        } else if (hasSession && stage !== 'NEW') {
+                            if (stage === 'AWAITING_ANSWERS') {
+                                cState = 'waiting';
+                                cDetail = `Q${s.turnCount || 1}/${s.maxTurns || 3} · awaiting your answer`;
+                            } else if (stage === 'BLOCKED') {
+                                cState = 'failed';
+                                cDetail = 'Story blocked';
+                            } else if (stage === 'CAPPED') {
+                                cState = 'failed';
+                                cDetail = 'Turn cap reached';
+                            } else {
+                                cState = 'done';
+                                cDetail = `Completed in ${s.turnCount || 0} turn(s)`;
+                            }
+                        }
+                        steps.push({ key: 'clarify', name: 'Clarify', state: cState, detail: cDetail });
+
+                        if (intent === 'EXPLAIN') {
+                            steps.push(this.buildAnalyzeStep());
+                            return steps;
+                        }
+                        if (intent === 'DOCUMENT') {
+                            steps.push(this.buildDocumentStep());
+                            return steps;
+                        }
+                        if (intent === 'REVIEW') {
+                            steps.push(this.buildStandaloneReviewStep());
+                            return steps;
+                        }
+
+                        if (intent === 'PLAN') {
+                            steps.push(this.buildPlanStep());
+                            steps.push(this.buildApproveStep());
+                        }
+                        steps.push(this.buildImplementStep());
+                        steps.push(this.buildReviewStep());
+                        steps.push(this.buildTestStep());
+                        steps.push(this.buildApplyStep());
+                        return steps;
+                    },
+
+                    buildPlanStep() {
+                        const p = this.plan;
+                        if (this.generatingPlan) {
+                            return { key: 'plan', name: 'Plan', state: 'active', detail: 'Generating implementation plan...' };
+                        }
+                        if (!p) {
+                            const ready = this.session?.stage === 'READY_TO_IMPLEMENT';
+                            return { key: 'plan', name: 'Plan', state: ready ? 'waiting' : 'queued',
+                                     detail: ready ? 'Ready to generate' : 'Runs after clarification' };
+                        }
+                        if (p.status === 'DRAFT') {
+                            return { key: 'plan', name: 'Plan', state: 'done', detail: 'Draft generated' };
+                        }
+                        if (p.status === 'REJECTED') {
+                            return { key: 'plan', name: 'Plan', state: 'failed', detail: 'Rejected · regenerate to retry' };
+                        }
+                        if (p.status === 'APPROVED' || p.status === 'EXECUTED') {
+                            return { key: 'plan', name: 'Plan', state: 'done', detail: 'Draft approved' };
+                        }
+                        return { key: 'plan', name: 'Plan', state: 'queued', detail: '' };
+                    },
+
+                    buildApproveStep() {
+                        const p = this.plan;
+                        if (!p) {
+                            return { key: 'approve', name: 'Approve', state: 'queued', detail: 'Runs after plan is drafted' };
+                        }
+                        if (p.status === 'DRAFT') {
+                            return { key: 'approve', name: 'Approve', state: 'waiting', detail: 'Waiting for your decision' };
+                        }
+                        if (p.status === 'REJECTED') {
+                            return { key: 'approve', name: 'Approve', state: 'failed', detail: 'Plan rejected' };
+                        }
+                        if (p.status === 'APPROVED' || p.status === 'EXECUTED') {
+                            return { key: 'approve', name: 'Approve', state: 'done', detail: 'Approved by ' + (p.approvedBy || 'you') };
+                        }
+                        return { key: 'approve', name: 'Approve', state: 'queued', detail: '' };
+                    },
+
+                    buildImplementStep() {
+                        const stage = this.session?.stage;
+                        const hasDiff = !!(this.session?.implementationResult
+                                            && this.session.implementationResult.files?.length);
+                        if (this.implementing || stage === 'IMPLEMENTATION_RUNNING') {
+                            return { key: 'implement', name: 'Implement', state: 'active', detail: 'Agent is writing the diff...' };
+                        }
+                        if (stage === 'IMPLEMENTATION_FAILED') {
+                            return { key: 'implement', name: 'Implement', state: 'failed', detail: 'Implementer failed' };
+                        }
+                        if (hasDiff || stage === 'IMPLEMENTATION_READY' || stage === 'APPLIED') {
+                            const n = this.session.implementationResult?.files?.length || 0;
+                            return { key: 'implement', name: 'Implement', state: 'done', detail: `${n} file(s) changed` };
+                        }
+                        if (this.intent === 'FIX' && stage === 'READY_TO_IMPLEMENT') {
+                            return { key: 'implement', name: 'Implement', state: 'waiting', detail: 'Ready — fast path skips plan' };
+                        }
+                        if (this.intent === 'PLAN' && this.plan && this.plan.status === 'APPROVED') {
+                            return { key: 'implement', name: 'Implement', state: 'waiting', detail: 'Ready — plan approved' };
+                        }
+                        const after = this.intent === 'FIX' ? 'clarification' : 'plan approval';
+                        return { key: 'implement', name: 'Implement', state: 'queued', detail: 'Runs after ' + after };
+                    },
+
+                    buildReviewStep() {
+                        const r = this.review;
+                        if (this.generatingReview) {
+                            return { key: 'review', name: 'Review', state: 'active', detail: 'Reviewer is auditing the diff...' };
+                        }
+                        if (r) {
+                            const verdict = (r.verdict || 'COMMENT').toUpperCase();
+                            if (verdict === 'APPROVE') {
+                                return { key: 'review', name: 'Review', state: 'done', detail: 'Approved by ' + r.createdBy };
+                            }
+                            if (verdict === 'REQUEST_CHANGES') {
+                                return { key: 'review', name: 'Review', state: 'failed', detail: 'Changes requested by ' + r.createdBy };
+                            }
+                            return { key: 'review', name: 'Review', state: 'done', detail: 'Commented by ' + r.createdBy };
+                        }
+                        const hasDiff = !!(this.session?.implementationResult
+                                            && this.session.implementationResult.files?.length);
+                        if (hasDiff) {
+                            return { key: 'review', name: 'Review', state: 'optional', detail: 'Optional · generate for a second opinion' };
+                        }
+                        return { key: 'review', name: 'Review', state: 'queued', detail: 'Runs after implement' };
+                    },
+
+                    buildStandaloneReviewStep() {
+                        if (this.generatingReview) {
+                            return { key: 'review', name: 'Review', state: 'active', detail: 'Reviewer is auditing...' };
+                        }
+                        const r = this.review;
+                        if (r) {
+                            const verdict = (r.verdict || 'COMMENT').toUpperCase();
+                            const label = verdict === 'APPROVE' ? 'Approved' : verdict === 'REQUEST_CHANGES' ? 'Changes requested' : 'Commented';
+                            return { key: 'review', name: 'Review', state: 'done', detail: label + ' by ' + r.createdBy };
+                        }
+                        const ready = this.session?.stage === 'READY_TO_IMPLEMENT';
+                        return { key: 'review', name: 'Review', state: ready ? 'waiting' : 'queued',
+                                 detail: ready ? 'Ready to review the named file(s)' : 'Runs after clarification' };
+                    },
+
+                    buildTestStep() {
+                        const t = this.testResult;
+                        if (this.runningTests) {
+                            return { key: 'test', name: 'Test', state: 'active', detail: 'Running mvn clean test...' };
+                        }
+                        if (t) {
+                            if (t.status === 'TESTS_PASSED') {
+                                return { key: 'test', name: 'Test', state: 'done',
+                                         detail: `${t.passedTests} passed in ${(t.durationMs / 1000).toFixed(1)}s` };
+                            }
+                            if (t.status === 'COMPILE_FAILED') {
+                                return { key: 'test', name: 'Test', state: 'failed', detail: 'Compile failed — see report below' };
+                            }
+                            if (t.status === 'TIMEOUT') {
+                                return { key: 'test', name: 'Test', state: 'failed', detail: 'Timed out after 600s' };
+                            }
+                            return { key: 'test', name: 'Test', state: 'failed',
+                                     detail: `${t.failedTests} failed · ${t.passedTests} passed` };
+                        }
+                        const hasDiff = !!(this.session?.implementationResult
+                                            && this.session.implementationResult.files?.length);
+                        if (hasDiff) {
+                            return { key: 'test', name: 'Test', state: 'waiting', detail: 'Ready to run test harness' };
+                        }
+                        return { key: 'test', name: 'Test', state: 'queued', detail: 'Runs after implement' };
+                    },
+
+                    buildApplyStep() {
+                        const stage = this.session?.stage;
+                        const t = this.testResult;
+                        if (stage === 'APPLIED') {
+                            return { key: 'apply', name: 'Apply', state: 'done', detail: 'Diff is on disk' };
+                        }
+                        if (t && t.status === 'TESTS_PASSED') {
+                            return { key: 'apply', name: 'Apply', state: 'done', detail: 'Diff is on disk (auto-applied by tests)' };
+                        }
+                        if (stage === 'IMPLEMENTATION_READY') {
+                            return { key: 'apply', name: 'Apply', state: 'waiting', detail: 'Ready to write to disk' };
+                        }
+                        return { key: 'apply', name: 'Apply', state: 'queued', detail: 'Runs after tests pass' };
+                    },
+
+                    buildAnalyzeStep() {
+                        if (this.generatingExplain) {
+                            return { key: 'analyze', name: 'Analyze', state: 'active', detail: 'Generating analysis...' };
+                        }
+                        if (this.explainArtifact) {
+                            return { key: 'analyze', name: 'Analyze', state: 'done', detail: 'Artifact ' + this.explainArtifact.shortId };
+                        }
+                        const ready = this.session?.stage === 'READY_TO_IMPLEMENT';
+                        return { key: 'analyze', name: 'Analyze', state: ready ? 'waiting' : 'queued',
+                                 detail: ready ? 'Ready to generate analysis' : 'Runs after clarification' };
+                    },
+
+                    buildDocumentStep() {
+                        if (this.generatingDoc) {
+                            return { key: 'document', name: 'Document', state: 'active', detail: 'Generating docs...' };
+                        }
+                        if (this.docArtifact) {
+                            return { key: 'document', name: 'Document', state: 'done', detail: 'Artifact ' + this.docArtifact.shortId };
+                        }
+                        const ready = this.session?.stage === 'READY_TO_IMPLEMENT';
+                        return { key: 'document', name: 'Document', state: ready ? 'waiting' : 'queued',
+                                 detail: ready ? 'Ready to generate docs' : 'Runs after clarification' };
+                    },
+
+                    stepDotClass(state) {
+                        switch (state) {
+                            case 'done':     return 'bg-emerald-500';
+                            case 'active':   return 'bg-blue-600';
+                            case 'waiting':  return 'bg-amber-500';
+                            case 'failed':   return 'bg-red-500';
+                            case 'optional': return 'bg-white border border-dashed border-slate-400';
+                            default:         return 'bg-white border border-slate-300';
+                        }
+                    },
+
+                    stepLabelClass(state) {
+                        switch (state) {
+                            case 'done':     return 'text-slate-700';
+                            case 'active':   return 'text-blue-700';
+                            case 'waiting':  return 'text-amber-700';
+                            case 'failed':   return 'text-red-700';
+                            case 'optional': return 'text-slate-500';
+                            default:         return 'text-slate-400';
+                        }
+                    },
+
+                    intentBadgeClass() {
+                        switch (this.intent) {
+                            case 'FIX':      return 'bg-amber-100 text-amber-800';
+                            case 'EXPLAIN':  return 'bg-blue-100 text-blue-800';
+                            case 'DOCUMENT': return 'bg-emerald-100 text-emerald-800';
+                            case 'REVIEW':   return 'bg-slate-100 text-slate-700';
+                            default:         return 'bg-violet-100 text-violet-800';
+                        }
                     },
 
                     get syntaxLabel() {
@@ -720,10 +1256,11 @@
                         return this.session.questions.every(q => (this.answers[q.id] || '').trim().length > 0);
                     },
 
-                    // --- busy/pending helpers ---
                     busy() {
                         return this.running || this.submitting || this.implementing
-                            || this.generatingPlan || this.generatingReview || this.reimplementing;
+                            || this.generatingPlan || this.generatingReview
+                            || this.reimplementing || this.runningTests
+                            || this.generatingExplain || this.generatingDoc;
                     },
 
                     pendingIs(step) {
@@ -747,20 +1284,25 @@
 
                     renderInline(text) {
                         if (!text) return '';
-                        const escaped = text
-                            .replace(/&/g, '&amp;')
-                            .replace(/</g, '&lt;')
-                            .replace(/>/g, '&gt;');
+                        const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                         return escaped.replace(/`([^`]+)`/g,
                             '<code class="px-1 py-0.5 rounded bg-slate-200 text-slate-800 font-mono text-[11px]">$1</code>');
                     },
 
                     renderMarkdown(text) {
                         if (!text) return '';
-                        try {
-                            return marked.parse(text);
-                        } catch (e) {
-                            return '<pre>' + text.replace(/</g, '&lt;') + '</pre>';
+                        try { return marked.parse(text); }
+                        catch (e) { return '<pre>' + text.replace(/</g, '&lt;') + '</pre>'; }
+                    },
+
+                    testStatusClass() {
+                        if (!this.testResult) return 'border-slate-200 bg-white';
+                        switch (this.testResult.status) {
+                            case 'TESTS_PASSED': return 'border-emerald-200 bg-emerald-50';
+                            case 'TESTS_FAILED': return 'border-red-200 bg-red-50';
+                            case 'COMPILE_FAILED': return 'border-red-200 bg-red-50';
+                            case 'TIMEOUT': return 'border-amber-200 bg-amber-50';
+                            default: return 'border-slate-200 bg-white';
                         }
                     },
 
@@ -797,8 +1339,7 @@
                             'refactor(db): Migrate session credential metadata to Redis with automatic TTL',
                             'perf(compiler): Parallel AST symbol resolution for monorepo dependency graphs'
                         ];
-                        const current = this.story;
-                        const idx = samples.indexOf(current);
+                        const idx = samples.indexOf(this.story);
                         this.story = samples[(idx + 1) % samples.length];
                     },
 
@@ -818,12 +1359,8 @@
                             this.setSession(data);
                             this.answers = {};
                             this.additionalContext = '';
-                        } catch (e) {
-                            this.error = e.message;
-                        } finally {
-                            this.running = false;
-                            this.clearPending();
-                        }
+                        } catch (e) { this.error = e.message; }
+                        finally { this.running = false; this.clearPending(); }
                     },
 
                     async submitAnswers() {
@@ -835,8 +1372,7 @@
                             const payload = {
                                 sessionId: this.session.sessionId,
                                 answers: Object.entries(this.answers).map(([qid, ans]) => ({
-                                    questionId: qid,
-                                    answer: ans
+                                    questionId: qid, answer: ans
                                 })),
                                 additionalContext: this.additionalContext
                             };
@@ -850,12 +1386,8 @@
                             this.setSession(data);
                             this.answers = {};
                             this.additionalContext = '';
-                        } catch (e) {
-                            this.error = e.message;
-                        } finally {
-                            this.submitting = false;
-                            this.clearPending();
-                        }
+                        } catch (e) { this.error = e.message; }
+                        finally { this.submitting = false; this.clearPending(); }
                     },
 
                     async loadRecent() {
@@ -863,9 +1395,7 @@
                             const res = await fetch('/pipeline/sessions?limit=20');
                             if (!res.ok) return;
                             this.recent = await res.json();
-                        } catch (_) {
-                            this.recent = [];
-                        }
+                        } catch (_) { this.recent = []; }
                     },
 
                     async loadSession(id) {
@@ -877,26 +1407,42 @@
                             const url = new URL(window.location.href);
                             url.searchParams.set('session', id);
                             window.history.replaceState({}, '', url);
-                        } catch (e) {
-                            this.error = e.message;
-                        }
+                        } catch (e) { this.error = e.message; }
                     },
 
                     async loadArtifacts() {
                         this.artifacts = [];
                         this.plan = null;
                         this.review = null;
+                        this.explainArtifact = null;
+                        this.docArtifact = null;
+                        this.testResult = null;
                         if (!this.session) return;
                         try {
                             const res = await fetch('/pipeline/' + this.session.sessionId + '/artifacts');
                             if (!res.ok) return;
                             const list = await res.json();
                             this.artifacts = list;
+
                             const plans = list.filter(a => a.kind === 'PLAN');
                             this.plan = plans.length > 0 ? plans[plans.length - 1] : null;
+
                             const reviews = list.filter(a => a.kind === 'REVIEW');
                             this.review = reviews.length > 0 ? reviews[0] : null;
                             this.planExpanded = !this.review;
+
+                            const explains = list.filter(a => a.kind === 'EXPLAIN');
+                            this.explainArtifact = explains.length > 0 ? explains[explains.length - 1] : null;
+
+                            const docs = list.filter(a => a.kind === 'DOC');
+                            this.docArtifact = docs.length > 0 ? docs[docs.length - 1] : null;
+
+                            const testRuns = list.filter(a => a.kind === 'TEST_RUN');
+                            const latest = testRuns.length > 0 ? testRuns[testRuns.length - 1] : null;
+                            if (latest) {
+                                try { this.testResult = JSON.parse(latest.content); }
+                                catch (_) { this.testResult = null; }
+                            }
                         } catch (_) { }
                     },
 
@@ -906,47 +1452,99 @@
                         this.artifactError = '';
                         this.setPending('Plan');
                         try {
-                            const res = await fetch(
-                                '/pipeline/' + this.session.sessionId + '/artifact/plan',
+                            const res = await fetch('/pipeline/' + this.session.sessionId + '/artifact/plan',
                                 { method: 'POST' });
                             const data = await res.json();
                             if (!res.ok) throw new Error(data.error || 'Failed to generate plan');
                             this.planExpanded = true;
                             await this.loadArtifacts();
+                        } catch (e) { this.artifactError = e.message; }
+                        finally { this.generatingPlan = false; this.clearPending(); }
+                    },
+
+                    async runFix() {
+                        if (!this.session || this.implementing) return;
+                        this.implementing = true;
+                        this.setPending('Implement');
+                        this.error = '';
+                        try {
+                            const res = await fetch('/pipeline/' + this.session.sessionId + '/fix',
+                                { method: 'POST' });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error || 'Fix failed to start');
+                            this.pollForDiff();
                         } catch (e) {
-                            this.artifactError = e.message;
-                        } finally {
-                            this.generatingPlan = false;
+                            this.error = e.message;
+                            this.implementing = false;
                             this.clearPending();
                         }
+                    },
+
+                    async generateExplain() {
+                        if (!this.session || this.generatingExplain) return;
+                        this.generatingExplain = true;
+                        this.explainArtifact = null;
+                        this.artifactError = '';
+                        try {
+                            const res = await fetch('/pipeline/' + this.session.sessionId + '/artifact/explain',
+                                { method: 'POST' });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error || 'Failed to generate explanation');
+                            this.explainArtifact = data;
+                        } catch (e) { this.artifactError = e.message; }
+                        finally { this.generatingExplain = false; }
+                    },
+
+                    async generateDoc() {
+                        if (!this.session || this.generatingDoc) return;
+                        this.generatingDoc = true;
+                        this.docArtifact = null;
+                        this.artifactError = '';
+                        try {
+                            const res = await fetch('/pipeline/' + this.session.sessionId + '/artifact/doc',
+                                { method: 'POST' });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error || 'Failed to generate docs');
+                            this.docArtifact = data;
+                        } catch (e) { this.artifactError = e.message; }
+                        finally { this.generatingDoc = false; }
+                    },
+
+                    async runTests() {
+                        if (!this.session || this.runningTests) return;
+                        this.runningTests = true;
+                        this.error = '';
+                        try {
+                            const res = await fetch('/pipeline/' + this.session.sessionId + '/run-tests',
+                                { method: 'POST' });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error || 'Test run failed');
+                            this.testResult = data.result;
+                            await this.loadSession(this.session.sessionId);
+                        } catch (e) { this.error = e.message; }
+                        finally { this.runningTests = false; }
                     },
 
                     async approvePlan() {
                         if (!this.plan) return;
                         this.artifactError = '';
                         try {
-                            const res = await fetch('/artifact/' + this.plan.id + '/approve',
-                                { method: 'POST' });
+                            const res = await fetch('/artifact/' + this.plan.id + '/approve', { method: 'POST' });
                             const data = await res.json();
                             if (!res.ok) throw new Error(data.error || 'Approve failed');
                             await this.loadArtifacts();
-                        } catch (e) {
-                            this.artifactError = e.message;
-                        }
+                        } catch (e) { this.artifactError = e.message; }
                     },
 
                     async rejectPlan() {
                         if (!this.plan) return;
                         this.artifactError = '';
                         try {
-                            const res = await fetch('/artifact/' + this.plan.id + '/reject',
-                                { method: 'POST' });
+                            const res = await fetch('/artifact/' + this.plan.id + '/reject', { method: 'POST' });
                             const data = await res.json();
                             if (!res.ok) throw new Error(data.error || 'Reject failed');
                             await this.loadArtifacts();
-                        } catch (e) {
-                            this.artifactError = e.message;
-                        }
+                        } catch (e) { this.artifactError = e.message; }
                     },
 
                     async generateReview() {
@@ -955,18 +1553,13 @@
                         this.artifactError = '';
                         this.setPending('Review');
                         try {
-                            const res = await fetch(
-                                '/pipeline/' + this.session.sessionId + '/artifact/review',
+                            const res = await fetch('/pipeline/' + this.session.sessionId + '/artifact/review',
                                 { method: 'POST' });
                             const data = await res.json();
                             if (!res.ok) throw new Error(data.error || 'Failed to generate review');
                             await this.loadArtifacts();
-                        } catch (e) {
-                            this.artifactError = e.message;
-                        } finally {
-                            this.generatingReview = false;
-                            this.clearPending();
-                        }
+                        } catch (e) { this.artifactError = e.message; }
+                        finally { this.generatingReview = false; this.clearPending(); }
                     },
 
                     async reimplement() {
@@ -974,19 +1567,55 @@
                         this.reimplementing = true;
                         this.artifactError = '';
                         this.setPending('Implement');
+
+                        // Do NOT null testResult here — keep the failure list
+                        // visible while Jim works, so the user can read what's
+                        // being fixed.
+
                         try {
-                            const res = await fetch(
-                                '/pipeline/' + this.session.sessionId + '/reimplement',
+                            const res = await fetch('/pipeline/' + this.session.sessionId + '/reimplement',
                                 { method: 'POST' });
                             const data = await res.json();
                             if (!res.ok) throw new Error(data.error || 'Re-implementation failed');
+
+                            // Drop the review — it's been consumed.
                             this.review = null;
-                            this.reimplementing = false;
+
+                            // Reload session so the stage badge flips to IMPLEMENTATION_RUNNING.
+                            try {
+                                const s = await fetch('/pipeline/session/' + this.session.sessionId)
+                                    .then(r => r.json());
+                                this.session = s;
+                                if (window.Alpine && Alpine.store('session')) {
+                                    Alpine.store('session').setSession(s);
+                                }
+                            } catch (_) { /* ignore */ }
+
+                            // Leave reimplementing = true; pollForDiff clears it.
                             this.pollForDiff();
                         } catch (e) {
                             this.artifactError = e.message;
                             this.reimplementing = false;
                             this.clearPending();
+                        }
+                    },
+
+                    async undoApply() {
+                        if (!this.session) return;
+                        if (!confirm('Revert the applied fix? The file will be restored from the backup.')) return;
+                        this.runningTests = true;
+                        this.error = '';
+                        try {
+                            const res = await fetch('/pipeline/' + this.session.sessionId + '/undo',
+                                { method: 'POST' });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error || 'Undo failed');
+                            this.testResult = null;
+                            await this.loadSession(this.session.sessionId);
+                        } catch (e) {
+                            this.error = e.message;
+                        } finally {
+                            this.runningTests = false;
                         }
                     },
 
@@ -1052,6 +1681,7 @@
                         this.artifactError = '';
                         this.previewOpen = false;
                         this.planExpanded = true;
+                        this.testResult = null;
                         localStorage.removeItem('relay.lastSessionId');
                     },
 

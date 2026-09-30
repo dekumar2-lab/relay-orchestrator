@@ -1,5 +1,5 @@
 provider: GITHUB_COPILOT
-githubToken: ""
+githubToken:
 workspaceDir: /tmp/workspace
 model: gpt-4o
 requestBudget: 5
@@ -8,7 +8,7 @@ repositories:
     path: D:\Deepak\Learning\Agentic AI\Relay\backend
     sourceType: LOCAL_PATH
     status: INDEXED
-    lastIndexed: "2026-09-27T02:17:23.687713"
+    lastIndexed: "2026-09-30T11:01:29.9861513"
 agents:
   enabled: true
   searchPaths:
@@ -21,5 +21,6 @@ agents:
     implementer: jim
     reviewer: dwight
     documenter: pam
+    analyst: oscar
   overrides: {}
   fallbackPersona: generic

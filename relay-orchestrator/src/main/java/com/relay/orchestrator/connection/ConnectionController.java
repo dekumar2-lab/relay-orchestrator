@@ -1,5 +1,6 @@
 package com.relay.orchestrator.connection;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.relay.orchestrator.artifact.Artifact;
 import com.relay.orchestrator.artifact.ArtifactKind;
 import com.relay.orchestrator.artifact.Executor;
@@ -7,6 +8,8 @@ import com.relay.orchestrator.artifact.ExecutorRegistry;
 import com.relay.orchestrator.artifact.ArtifactStore;
 import com.relay.orchestrator.artifact.Producer;
 import com.relay.orchestrator.artifact.ProducerRegistry;
+import com.relay.orchestrator.build.BuildSystemDetector;
+import com.relay.orchestrator.config.AppConfigManager;
 import com.relay.orchestrator.logging.LogBroadcaster;
 import com.relay.orchestrator.logging.LogEvent;
 import com.relay.orchestrator.logging.TokenTrackerService;
@@ -23,6 +26,7 @@ import com.relay.orchestrator.retrieval.RetrievalService;
 import com.relay.orchestrator.retrieval.RetrievedChunk;
 import com.relay.orchestrator.service.ClarificationResult;
 import com.relay.orchestrator.service.IntentClarifierService;
+import com.relay.orchestrator.test.TestRunnerService;
 import com.relay.orchestrator.tokens.TokenMetricsService;
 
 import org.springframework.http.MediaType;
@@ -62,6 +66,10 @@ public class ConnectionController {
     private final ProducerRegistry producerRegistry;
     private final ExecutorRegistry executorRegistry;
     private final ApplyService applyService;
+    private final BuildSystemDetector buildSystemDetector;
+    private final AppConfigManager appConfigManager;
+    private final com.relay.orchestrator.test.TestRunnerService testRunnerService;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "connection-test");
@@ -83,7 +91,11 @@ public class ConnectionController {
             ArtifactStore artifactStore,
             ProducerRegistry producerRegistry,
             ExecutorRegistry executorRegistry,
-            ApplyService applyService) {
+            ApplyService applyService,
+            BuildSystemDetector buildSystemDetector,
+            AppConfigManager appConfigManager,
+            TestRunnerService testRunnerService,
+            ObjectMapper objectMapper) {
         this.configService = configService;
         this.connectionStatusService = connectionStatusService;
         this.copilotConnectionChecker = copilotConnectionChecker;
@@ -99,6 +111,10 @@ public class ConnectionController {
         this.producerRegistry = producerRegistry;
         this.executorRegistry = executorRegistry;
         this.applyService = applyService;
+        this.buildSystemDetector = buildSystemDetector;
+        this.appConfigManager = appConfigManager;
+        this.objectMapper = new ObjectMapper();
+        this.testRunnerService = testRunnerService;
     }
 
     @ModelAttribute("config")
@@ -346,9 +362,16 @@ public class ConnectionController {
         final Artifact planRef = plan;
         final PipelineSession sessionRef = session;
 
+        // Mark as RUNNING before submit so the poll doesn't misread the state
+        PipelineSession running = session.with(
+                PipelineStage.IMPLEMENTATION_RUNNING, session.lastResult());
+        loopService.save(running);
+
+        final PipelineSession runningRef = running;
+
         executor.submit(() -> {
             try {
-                planExecutor.execute(planRef, sessionRef);
+                planExecutor.execute(planRef, runningRef);
             } catch (Exception e) {
                 logBroadcaster.publish(LogEvent.error(
                         "[EXECUTOR] Unexpected failure: " + e.getMessage()));
@@ -399,10 +422,74 @@ public class ConnectionController {
             view.put("questions", session.lastResult().questions());
             view.put("riskNotes", session.lastResult().riskNotes());
             view.put("assumptionsMade", session.lastResult().assumptionsMade());
+            view.put("recommendedIntent",
+                    session.lastResult().effectiveIntent().name());
+            view.put("intentConfidence",
+                    session.lastResult().effectiveIntentConfidence().name());
         }
 
         view.put("qaHistory", session.qaHistory());
         return view;
+    }
+
+    /**
+     * FIX fast path. Dispatches directly to the no-plan implementer
+     * overload — the clarifier's summary + Q&A are the directive.
+     */
+    @PostMapping("/pipeline/{sessionId}/fix")
+    @ResponseBody
+    public ResponseEntity<?> startFix(@PathVariable String sessionId) {
+        PipelineSession session;
+        try {
+            session = loopService.get(sessionId);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(404).body(Map.of("error", "Session not found"));
+        }
+
+        if (session.stage() != PipelineStage.READY_TO_IMPLEMENT) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Session is in stage " + session.stage()
+                            + "; expected READY_TO_IMPLEMENT"));
+        }
+        if (session.lastResult() == null
+                || session.lastResult().effectiveIntent() != ClarificationResult.Intent.FIX) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Session intent is not FIX"));
+        }
+
+        PipelineSession running = session.with(
+                PipelineStage.IMPLEMENTATION_RUNNING, session.lastResult());
+        loopService.save(running);
+
+        executor.submit(() -> {
+            try {
+                ImplementationResult result = implementerService.implement(running);
+                PipelineSession updated = running.withImplementation(result);
+                if (result.files().isEmpty()) {
+                    // Jim found nothing to change. Don't mark as failed.
+                    updated = running.with(PipelineStage.APPLIED, running.lastResult());
+                    logBroadcaster.publish(LogEvent.info(
+                            "[FIX] No changes needed — the bug appears to be fixed already"));
+                } else {
+                    updated = running.withImplementation(result);
+                    logBroadcaster.publish(LogEvent.success(
+                            "[FIX] " + result.files().size() + " file(s), +"
+                                    + result.totalAdditions() + "/-" + result.totalDeletions()));
+                }
+                loopService.save(updated);
+                logBroadcaster.publish(LogEvent.success(
+                        "[FIX] " + result.files().size() + " file(s), +"
+                                + result.totalAdditions() + "/-" + result.totalDeletions()));
+            } catch (Exception e) {
+                logBroadcaster.publish(LogEvent.error(
+                        "[FIX] Failed: " + e.getMessage()));
+            }
+        });
+
+        return ResponseEntity.accepted().body(Map.of(
+                "status", "running",
+                "sessionId", sessionId,
+                "message", "Fix started. Watch the live log."));
     }
 
     @GetMapping("/settings")
@@ -449,6 +536,21 @@ public class ConnectionController {
         model.addAttribute("persistentRecent", tokenMetrics.recent(20));
         model.addAttribute("cacheReadsToday", tokenMetrics.cacheReadsToday());
         model.addAttribute("cacheWritesToday", tokenMetrics.cacheWritesToday());
+        model.addAttribute("inputTokensToday", tokenMetrics.inputTokensToday());
+        model.addAttribute("outputTokensToday", tokenMetrics.outputTokensToday());
+        model.addAttribute("totalInputTokens", tokenMetrics.totalInputTokens());
+        model.addAttribute("totalOutputTokens", tokenMetrics.totalOutputTokens());
+        model.addAttribute("callsToday", tokenMetrics.callsToday());
+
+        model.addAttribute("persistentRecords", tokenMetrics.totalRecords());
+        model.addAttribute("persistentRecent", tokenMetrics.recent(20));
+        model.addAttribute("cacheReadsToday", tokenMetrics.cacheReadsToday());
+        model.addAttribute("cacheWritesToday", tokenMetrics.cacheWritesToday());
+
+        model.addAttribute("approxPremiumRequestsToday",
+                tokenMetrics.approximatePremiumRequestsToday());
+        model.addAttribute("approxPremiumRequestsAllTime",
+                tokenMetrics.approximatePremiumRequestsAllTime());
 
         return "layout";
     }
@@ -524,24 +626,42 @@ public class ConnectionController {
     }
 
     /**
-     * Bind form fields on top of the currently-loaded config so any field the
-     * form does not submit (e.g. a masked token) retains its stored value.
+     * Test Connection must be side-effect-free. Persisting here rewrote
+     * config.yml on every click — the Phase 0 split-brain bug.
+     * Users save explicitly via POST /settings/save.
      */
     @PostMapping("/connection/test")
     public ResponseEntity<Map<String, Object>> testConnection(
             @ModelAttribute("config") ConnectionConfig formConfig) {
 
-        configService.save(formConfig);
-
-        ConnectionConfig effective = configService.load()
-                .orElseGet(ConnectionConfig::new);
-
-        LlmConnectionChecker checker = copilotConnectionChecker;
-        executor.submit(() -> checker.validate(effective));
+        ConnectionConfig effective = mergeOverStored(formConfig);
+        executor.submit(() -> copilotConnectionChecker.validate(effective));
 
         return ResponseEntity.accepted().body(Map.of(
                 "status", "queued",
                 "message", "Connection test started. Please watch the live log."));
+    }
+
+    /** Fill in any blank/omitted field from the stored config before probing. */
+    private ConnectionConfig mergeOverStored(ConnectionConfig form) {
+        ConnectionConfig stored = configService.load().orElseGet(ConnectionConfig::new);
+        if (form.getGithubToken() == null || form.getGithubToken().isBlank())
+            form.setGithubToken(stored.getGithubToken());
+        if (form.getModel() == null || form.getModel().isBlank())
+            form.setModel(stored.getModel());
+        if (form.getWorkspaceDir() == null || form.getWorkspaceDir().isBlank())
+            form.setWorkspaceDir(stored.getWorkspaceDir());
+        if (form.getRequestBudget() <= 0)
+            form.setRequestBudget(stored.getRequestBudget());
+        return form;
+    }
+
+    @PostMapping("/settings/save")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> saveSettings(
+            @ModelAttribute("config") ConnectionConfig formConfig) {
+        configService.save(formConfig);
+        return ResponseEntity.ok(Map.of("status", "saved"));
     }
 
     // ==================================================================
@@ -677,15 +797,24 @@ public class ConnectionController {
                 .findBySessionAndKind(sessionId, ArtifactKind.PLAN)
                 .stream().findFirst().orElse(null);
 
-        if (plan == null || !(plan.isApproved() || plan.isExecuted())) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "error", "No approved plan available for re-implementation"));
-        }
-
         Artifact review = artifactStore
                 .findBySessionAndKind(sessionId, ArtifactKind.REVIEW)
                 .stream().findFirst().orElse(null);
 
+        if (review == null) {
+            Artifact testRun = artifactStore
+                    .findBySessionAndKind(sessionId, ArtifactKind.TEST_RUN)
+                    .stream().reduce((a, b) -> b).orElse(null); // latest
+
+            if (testRun != null) {
+                // Synthesize a review artifact from the test result.
+                String feedback = buildTestFailureFeedback(testRun.content());
+                String syntheticId = artifactStore.create(
+                        sessionId, ArtifactKind.REVIEW, feedback,
+                        "REQUEST_CHANGES", "system");
+                review = artifactStore.find(syntheticId).orElse(null);
+            }
+        }
         if (review == null) {
             return ResponseEntity.badRequest().body(Map.of(
                     "error", "No review available. Generate a review first."));
@@ -699,12 +828,78 @@ public class ConnectionController {
         // Delete the stale review — the diff is about to change
         artifactStore.delete(sessionId, ArtifactKind.REVIEW);
 
+        final String feedback = review.content();
+
+        // FIX path — no approved PLAN artifact. Re-run the no-plan
+        // implementer with the review feedback as the directive.
+        boolean hasApprovedPlan = plan != null
+                && (plan.isApproved() || plan.isExecuted());
+
+        // The file on disk may or may not be pristine. Two things can put
+        // the previous diff on disk:
+        // (a) session.stage() == APPLIED (runTests auto-applied it)
+        // (b) an earlier reimplement left the mangled diff behind
+        // In both cases, undo before re-running. applyService.undo reads
+        // the latest backup from .relay-backup and restores the original.
+        // If no backup exists, the undo fails — but that just means the
+        // file is already pristine, so we log and continue.
+        logBroadcaster.publish(LogEvent.info(
+                "[REIMPL] Session stage before undo: " + session.stage()));
+
+        ApplyResult undoResult = applyService.undo(session);
+        logBroadcaster.publish(LogEvent.info(
+                "[REIMPL] Undo result: ok=" + undoResult.ok()
+                        + " files=" + undoResult.fileCount()
+                        + " msg=" + undoResult.message()));
+
+        if (undoResult.ok()) {
+            // Restore the pipeline stage so downstream code knows the diff
+            // is no longer on disk.
+            if (session.stage() == PipelineStage.APPLIED) {
+                session = session.with(PipelineStage.IMPLEMENTATION_READY, session.lastResult());
+                loopService.save(session);
+            }
+            logBroadcaster.publish(LogEvent.info(
+                    "[REIMPL] Reverted " + undoResult.fileCount()
+                            + " file(s) to pristine state before re-implement"));
+        } else {
+            logBroadcaster.publish(LogEvent.info(
+                    "[REIMPL] No backup to undo — assuming pristine, proceeding"));
+        }
+
+        if (!hasApprovedPlan) {
+            PipelineSession running = session.with(
+                    PipelineStage.IMPLEMENTATION_RUNNING, session.lastResult());
+            loopService.save(running);
+            final PipelineSession runningRef = running;
+
+            executor.submit(() -> {
+                try {
+                    ImplementationResult result = implementerService.implement(
+                            runningRef, "", feedback);
+                    PipelineSession updated = runningRef.withImplementation(result);
+                    loopService.save(updated);
+                    logBroadcaster.publish(LogEvent.success(
+                            "[FIX] Re-implemented with review feedback: "
+                                    + result.files().size() + " file(s)"));
+                } catch (Exception e) {
+                    logBroadcaster.publish(LogEvent.error(
+                            "[FIX] Re-implementation failed: " + e.getMessage()));
+                }
+            });
+
+            return ResponseEntity.accepted().body(Map.of(
+                    "status", "running",
+                    "sessionId", sessionId,
+                    "message", "Re-implementation started. Watch the live log."));
+        }
+
+        // PLAN path
         if (!executorRegistry.has(ArtifactKind.PLAN)) {
             return ResponseEntity.status(500).body(Map.of(
                     "error", "No executor registered for PLAN"));
         }
 
-        // Use PlanExecutor directly for feedback flow
         if (!(executorRegistry
                 .forKind(ArtifactKind.PLAN) instanceof com.relay.orchestrator.artifact.PlanExecutor planExecutor)) {
             return ResponseEntity.status(500).body(Map.of(
@@ -712,12 +907,15 @@ public class ConnectionController {
         }
 
         final Artifact planRef = plan;
-        final PipelineSession sessionRef = session;
-        final String feedback = review.content();
+        PipelineSession running = session.with(
+                PipelineStage.IMPLEMENTATION_RUNNING, session.lastResult());
+        loopService.save(running);
+
+        final PipelineSession runningRef = running;
 
         executor.submit(() -> {
             try {
-                planExecutor.executeWithFeedback(planRef, sessionRef, feedback);
+                planExecutor.executeWithFeedback(planRef, runningRef, feedback);
             } catch (Exception e) {
                 logBroadcaster.publish(LogEvent.error(
                         "[EXECUTOR] Re-implementation failed: " + e.getMessage()));
@@ -809,9 +1007,129 @@ public class ConnectionController {
         logBroadcaster.publish(LogEvent.warn(
                 "[UNDO] " + result.fileCount() + " file(s) restored from backup"));
 
+        // The test result is no longer valid — the disk state it was run against
+        // has been rolled back. Delete it so the UI doesn't show a stale PASSED.
+        artifactStore.delete(sessionId, ArtifactKind.TEST_RUN);
+        logBroadcaster.publish(LogEvent.warn(
+                "[UNDO] " + result.fileCount() + " file(s) restored from backup"));
+
         return ResponseEntity.ok(Map.of(
                 "status", "undone",
                 "fileCount", result.fileCount(),
                 "backupPath", result.backupPath()));
+    }
+
+    @GetMapping("/debug/detect-build")
+    @ResponseBody
+    public ResponseEntity<?> debugDetectBuild() {
+        try {
+            var repos = appConfigManager.getRepositories();
+            if (repos.isEmpty()) {
+                return ResponseEntity.ok(Map.of("error", "No repos configured"));
+            }
+            var repo = repos.get(0);
+            var path = java.nio.file.Paths.get(repo.getPath()).toAbsolutePath().normalize();
+            var detection = buildSystemDetector.detect(path);
+            return ResponseEntity.ok(Map.of(
+                    "repoId", repo.getId(),
+                    "path", path.toString(),
+                    "system", detection.getSystem().getId(),
+                    "executable", detection.getExecutable() == null ? "" : detection.getExecutable(),
+                    "compileArgs", detection.getCompileArgs() == null ? List.of() : detection.getCompileArgs(),
+                    "testArgs", detection.getTestArgs() == null ? List.of() : detection.getTestArgs(),
+                    "detected", detection.isDetected()));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", e.getClass().getSimpleName() + ": " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/pipeline/{sessionId}/run-tests")
+    @ResponseBody
+    public ResponseEntity<?> runTests(@PathVariable String sessionId) {
+        PipelineSession session;
+        try {
+            session = loopService.get(sessionId);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(404).body(Map.of("error", "Session not found"));
+        }
+
+        if (session.implementationResult() == null
+                || session.implementationResult().files().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Session has no diff to test"));
+        }
+
+        // Test runner needs files on disk. Auto-apply if not already APPLIED.
+        if (session.stage() == PipelineStage.IMPLEMENTATION_READY) {
+            ApplyResult ar = applyService.apply(session);
+            if (!ar.ok()) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "error", "Could not apply diff: " + ar.message()));
+            }
+            session = session.with(PipelineStage.APPLIED, session.lastResult());
+            loopService.save(session);
+            logBroadcaster.publish(LogEvent.info(
+                    "[TESTS] Diff applied to disk before test run"));
+        } else if (session.stage() != PipelineStage.APPLIED) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Session is in stage " + session.stage()
+                            + "; expected IMPLEMENTATION_READY or APPLIED"));
+        }
+
+        com.relay.orchestrator.test.TestRunResult result = testRunnerService.run();
+
+        String artId;
+        try {
+            String json = objectMapper.writeValueAsString(result);
+            artId = artifactStore.create(sessionId, ArtifactKind.TEST_RUN,
+                    json, null, "system");
+        } catch (Exception e) {
+            logBroadcaster.publish(LogEvent.error(
+                    "Failed to persist TEST_RUN artifact: " + e.getMessage()));
+            artId = null;
+        }
+
+        java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("artifactId", artId);
+        body.put("result", result);
+        return ResponseEntity.ok(body);
+    }
+
+    private String buildTestFailureFeedback(String testRunJson) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(testRunJson);
+            StringBuilder sb = new StringBuilder();
+            sb.append("# Test failure report\n\n");
+            sb.append("**Status:** ").append(node.path("status").asText("UNKNOWN")).append("\n\n");
+
+            if ("COMPILE_FAILED".equals(node.path("status").asText())) {
+                sb.append("## Compilation error\n\n");
+                sb.append("The previous implementation did not compile. "
+                        + "Maven output (tail):\n\n```\n");
+                String stdout = node.path("stdoutTail").asText("");
+                if (stdout.length() > 3000) {
+                    stdout = stdout.substring(stdout.length() - 3000);
+                }
+                sb.append(stdout).append("\n```\n\n");
+                sb.append("Fix every compilation error above before making further "
+                        + "changes. Verify the file parses cleanly with `mvn compile` "
+                        + "before calling submit_plan.");
+            } else {
+                sb.append("**Passed:** ").append(node.path("passedTests").asInt()).append("\n");
+                sb.append("**Failed:** ").append(node.path("failedTests").asInt()).append("\n\n");
+                sb.append("## Failures\n\n");
+                for (com.fasterxml.jackson.databind.JsonNode f : node.path("failures")) {
+                    if ("SKIPPED".equals(f.path("kind").asText()))
+                        continue;
+                    sb.append("- `").append(f.path("className").asText())
+                            .append(".").append(f.path("testName").asText()).append("` — ")
+                            .append(f.path("message").asText("")).append("\n");
+                }
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "Test failures detected but could not be parsed: " + e.getMessage();
+        }
     }
 }

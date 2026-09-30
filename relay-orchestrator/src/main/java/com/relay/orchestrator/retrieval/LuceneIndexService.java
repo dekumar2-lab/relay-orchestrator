@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -65,6 +66,13 @@ public class LuceneIndexService {
                 // Two versions of the name: stored for display, analyzed for search.
                 doc.add(new TextField("content", nz(chunk.content()), Field.Store.YES));
                 doc.add(new TextField("nameIndexed", nz(chunk.qualifiedName()), Field.Store.NO));
+                String qn = nz(chunk.qualifiedName());
+                doc.add(new StringField("nameExact",
+                        qn.toLowerCase(Locale.ROOT),
+                        Field.Store.NO));
+                doc.add(new StringField("nameSimple",
+                        simpleName(qn).toLowerCase(Locale.ROOT),
+                        Field.Store.NO));
                 writer.addDocument(doc);
                 count++;
             }
@@ -126,5 +134,24 @@ public class LuceneIndexService {
         } else {
             log.info("No chunks in DB; Lucene index stays empty until first index run");
         }
+    }
+
+    /**
+     * Strips the package from a qualified name, keeping the class and
+     * (optionally) the method:
+     * com.relay.service.SseEmitterService -> SseEmitterService
+     * com.relay.service.SseEmitterService.emit -> SseEmitterService.emit
+     * com.relay.service.SseEmitterService$Inner -> SseEmitterService$Inner
+     */
+    private static String simpleName(String qualifiedName) {
+        if (qualifiedName == null || qualifiedName.isEmpty())
+            return "";
+        String[] parts = qualifiedName.split("\\.");
+        for (int i = 0; i < parts.length; i++) {
+            if (!parts[i].isEmpty() && Character.isUpperCase(parts[i].charAt(0))) {
+                return String.join(".", java.util.Arrays.copyOfRange(parts, i, parts.length));
+            }
+        }
+        return qualifiedName;
     }
 }

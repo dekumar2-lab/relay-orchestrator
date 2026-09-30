@@ -116,7 +116,7 @@ function resolveFallbackToken() {
 // HTTP helper
 // --------------------------------------------------------------------------
 
-function httpsRequest(method, url, headers, body) {
+function httpsRequest(method, url, headers, body, timeoutMs = 60000) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const req = https.request(
@@ -137,8 +137,17 @@ function httpsRequest(method, url, headers, body) {
             body: Buffer.concat(chunks).toString("utf8"),
           }),
         );
+        res.on("error", reject);
       },
     );
+
+    // Socket + response timeout. Without this, a hung Copilot request
+    // leaves the bridge's stdout blocked forever and the Java side
+    // times out at 90s but the bridge process never recovers.
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`Copilot request timed out after ${timeoutMs}ms`));
+    });
+
     req.on("error", reject);
     if (body) req.write(body);
     req.end();
@@ -153,55 +162,6 @@ const sessionCache = new Map();
 
 function hashKey(s) {
   return crypto.createHash("sha256").update(s).digest("hex");
-}
-
-async function getOAuthSession(githubToken) {
-  const key = hashKey(githubToken);
-  const cached = sessionCache.get(key);
-  if (cached && Date.now() < cached.expiresAt - 60000) return cached;
-
-  const res = await httpsRequest(
-    "GET",
-    "https://api.github.com/copilot_internal/v2/token",
-    {
-      Authorization: `token ${githubToken}`,
-      Accept: "application/json",
-      "Editor-Version": EDITOR_VERSION,
-      "Editor-Plugin-Version": EDITOR_PLUGIN_VERSION,
-      "User-Agent": USER_AGENT,
-      "X-GitHub-Api-Version": "2025-04-01",
-      "Copilot-Integration-Id": OAUTH_INTEGRATION_ID,
-    },
-    null,
-  );
-
-  if (res.status !== 200) {
-    throw new Error(
-      `Copilot token exchange failed (${res.status}): ${res.body.slice(0, 200)}`,
-    );
-  }
-
-  const data = JSON.parse(res.body);
-  if (!data.token) throw new Error('Exchange response missing "token"');
-
-  let apiBase = DEFAULT_API_BASE;
-  for (const part of data.token.split(";")) {
-    const t = part.trim();
-    if (t.startsWith("proxy-ep=")) {
-      apiBase = t
-        .substring("proxy-ep=".length())
-        .replace("://proxy.", "://api.")
-        .replace(/\/$/, "");
-      break;
-    }
-  }
-
-  const expiresAt = data.expires_at
-    ? data.expires_at * 1000
-    : Date.now() + 30 * 60 * 1000;
-  const session = { token: data.token, apiBase, expiresAt };
-  sessionCache.set(key, session);
-  return session;
 }
 
 // --------------------------------------------------------------------------
@@ -249,6 +209,8 @@ async function chatCompletion(req) {
     body.tools = req.tools;
     if (req.toolChoice) body.tool_choice = req.toolChoice;
   }
+
+  if (req.temperature != null) body.temperature = req.temperature;
 
   const res = await httpsRequest(
     "POST",
@@ -325,27 +287,62 @@ async function handle(req) {
 }
 
 const rl = readline.createInterface({ input: process.stdin, terminal: false });
-rl.on("line", async (line) => {
-  let req;
-  try {
-    req = JSON.parse(line);
-  } catch (e) {
-    process.stdout.write(
-      JSON.stringify({ id: null, ok: false, error: "Invalid JSON request" }) +
-        "\n",
-    );
-    return;
-  }
-  try {
-    const result = await handle(req);
-    process.stdout.write(
-      JSON.stringify({ id: req.id, ok: true, ...result }) + "\n",
-    );
-  } catch (err) {
-    process.stdout.write(
-      JSON.stringify({ id: req.id, ok: false, error: err.message }) + "\n",
-    );
-  }
+
+// Hard ceiling on any single request handling. Belt-and-braces on top of
+// the per-HTTP timeout. If `handle()` somehow blocks past this, we still
+// emit an error response so the Java side's readLine returns.
+const HANDLER_WATCHDOG_MS = 90000;
+
+// Serialize request handling. Two lines arriving in quick succession
+// previously could interleave responses on stdout, corrupting the JSON
+// Lines protocol. This queue guarantees one request in flight at a time.
+let queue = Promise.resolve();
+
+function writeLine(obj) {
+  process.stdout.write(JSON.stringify(obj) + "\n");
+}
+
+function withWatchdog(promise, id) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(`Handler watchdog fired after ${HANDLER_WATCHDOG_MS}ms`),
+          ),
+        HANDLER_WATCHDOG_MS,
+      ),
+    ),
+  ]).catch((err) => {
+    return { __error: err.message };
+  });
+}
+
+rl.on("line", (line) => {
+  queue = queue
+    .then(async () => {
+      let req;
+      try {
+        req = JSON.parse(line);
+      } catch (e) {
+        writeLine({ id: null, ok: false, error: "Invalid JSON request" });
+        return;
+      }
+
+      const result = await withWatchdog(handle(req), req.id);
+
+      if (result && result.__error) {
+        writeLine({ id: req.id, ok: false, error: result.__error });
+      } else {
+        writeLine({ id: req.id, ok: true, ...result });
+      }
+    })
+    .catch((err) => {
+      // Queue-level failure. Keep the process alive; the Java side will
+      // see a missing response and time out at its own 90s limit.
+      process.stderr.write("bridge queue error: " + err.message + "\n");
+    });
 });
 
 process.stderr.write("copilot-bridge ready (node " + process.version + ")\n");

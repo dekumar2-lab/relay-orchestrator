@@ -60,8 +60,11 @@ public class PlanExecutor implements Executor {
             loopService.save(updated);
             artifactStore.markExecuted(artifact.id());
 
+            // A new diff invalidates any previous review
+            artifactStore.delete(session.id(), ArtifactKind.REVIEW);
+
             logBroadcaster.publish(LogEvent.success(
-                    "[EXECUTOR] Plan " + artifact.shortId() + " executed"));
+                    "[EXECUTOR] Plan " + artifact.shortId() + " executed (review invalidated)"));
 
             return true;
         } catch (Exception e) {
@@ -91,8 +94,12 @@ public class PlanExecutor implements Executor {
             loopService.save(updated);
             artifactStore.markExecuted(plan.id());
 
+            // A new diff invalidates any previous review
+            artifactStore.delete(session.id(), ArtifactKind.REVIEW);
+
             logBroadcaster.publish(LogEvent.success(
-                    "[EXECUTOR] Re-implementation from plan " + plan.shortId() + " complete"));
+                    "[EXECUTOR] Re-implementation from plan " + plan.shortId()
+                            + " complete (review invalidated)"));
 
             return true;
         } catch (Exception e) {

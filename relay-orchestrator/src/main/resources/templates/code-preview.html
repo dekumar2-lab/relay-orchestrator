@@ -52,8 +52,10 @@
                     </span>
                 </div>
                 <div class="flex items-center gap-2 font-mono text-[11px]">
-                    <span class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium" x-text="'+' + totalAdd + ' lines'"></span>
-                    <span class="px-2 py-0.5 rounded-full bg-red-50 text-red-700 font-medium" x-text="'-' + totalDel + ' lines'"></span>
+                    <span class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium"
+                          x-text="'+' + totalAdd + ' lines'"></span>
+                    <span class="px-2 py-0.5 rounded-full bg-red-50 text-red-700 font-medium"
+                          x-text="'-' + totalDel + ' lines'"></span>
                 </div>
             </div>
 
@@ -92,12 +94,39 @@
                      class="mb-2 px-3 py-2 rounded-lg text-center font-medium text-[13px]"
                      :class="toastClass"></div>
 
-                <button type="button" @click="approve()"
-                        class="w-full h-11 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium text-[13px] flex items-center justify-center gap-2 shadow-md transition">
-                    <span class="material-symbols-outlined text-[18px]">merge</span>
-                    Apply Changes to Disk
-                </button>
-                <button type="button" @click="reject()"
+                <div x-show="applying || undoing"
+                     class="mb-2 px-3 py-2 rounded-lg text-center font-medium text-[13px] bg-blue-50 text-blue-700">
+                    <span x-show="applying">Writing files to disk…</span>
+                    <span x-show="undoing">Restoring from backup…</span>
+                </div>
+
+                <div class="flex gap-2">
+                    <button type="button"
+                            x-show="session && session.stage !== 'APPLIED'"
+                            @click="applyToDisk()"
+                            :disabled="applying || undoing"
+                            class="flex-1 h-11 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[13px] flex items-center justify-center gap-2 shadow-md transition">
+                        <span class="material-symbols-outlined text-[18px]"
+                              :class="applying ? 'animate-spin' : ''"
+                              x-text="applying ? 'autorenew' : 'merge'"></span>
+                        <span x-text="applying ? 'Applying…' : 'Apply Changes to Repo'"></span>
+                    </button>
+
+                    <button type="button"
+                            x-show="session && session.stage === 'APPLIED'"
+                            @click="undoApply()"
+                            :disabled="applying || undoing"
+                            class="flex-1 h-11 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[13px] flex items-center justify-center gap-2 shadow-md transition">
+                        <span class="material-symbols-outlined text-[18px]"
+                              :class="undoing ? 'animate-spin' : ''"
+                              x-text="undoing ? 'autorenew' : 'undo'"></span>
+                        <span x-text="undoing ? 'Undoing…' : 'Undo Applied Changes'"></span>
+                    </button>
+                </div>
+
+                <button type="button"
+                        x-show="session && session.stage !== 'APPLIED'"
+                        @click="reject()"
                         class="w-full h-10 mt-2 rounded-lg bg-slate-100 text-slate-800 hover:bg-slate-200 font-medium text-[13px] flex items-center justify-center gap-2 transition">
                     <span class="material-symbols-outlined text-[16px] text-red-600">assignment_return</span>
                     Reject &amp; Re-clarify
@@ -110,6 +139,7 @@
         function diffViewer() {
             return {
                 sessionId: '',
+                session: null,
                 files: [],
                 totalAdd: 0,
                 totalDel: 0,
@@ -117,12 +147,17 @@
                 error: '',
                 actionToast: '',
                 toastClass: 'bg-slate-100 text-slate-800',
+                applying: false,
+                undoing: false,
 
                 init() {
                     const params = new URLSearchParams(window.location.search);
                     const urlId = params.get('session');
                     this.sessionId = urlId || localStorage.getItem('relay.lastSessionId') || '';
-                    if (this.sessionId) this.load();
+                    if (this.sessionId) {
+                        this.load();
+                        this.loadSession();
+                    }
                 },
 
                 async load() {
@@ -141,8 +176,21 @@
                         this.totalAdd = data.totalAdditions || 0;
                         this.totalDel = data.totalDeletions || 0;
                         this.loaded = true;
+                        // Also reload session state — it may have changed
+                        this.loadSession();
                     } catch (e) {
                         this.error = e.message;
+                    }
+                },
+
+                async loadSession() {
+                    if (!this.sessionId) return;
+                    try {
+                        const res = await fetch('/pipeline/session/' + this.sessionId);
+                        if (!res.ok) { this.session = null; return; }
+                        this.session = await res.json();
+                    } catch (_) {
+                        this.session = null;
                     }
                 },
 
@@ -177,17 +225,63 @@
 
                 showToast(msg, ok) {
                     this.actionToast = msg;
-                    this.toastClass = ok ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-800';
-                    setTimeout(() => { this.actionToast = ''; }, 3200);
+                    this.toastClass = ok
+                        ? 'bg-emerald-50 text-emerald-800'
+                        : 'bg-red-50 text-red-800';
+                    setTimeout(() => { this.actionToast = ''; }, 4000);
                 },
 
-                approve() {
-                    // Phase 2c endpoint not built yet — placeholder
-                    this.showToast('Apply-to-disk lands in Phase 2c. Nothing was written.', false);
+                async applyToDisk() {
+                    if (!this.session || this.applying) return;
+                    this.applying = true;
+                    this.actionToast = '';
+                    try {
+                        const res = await fetch(
+                            '/pipeline/' + this.session.sessionId + '/apply',
+                            { method: 'POST' });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.error || 'Apply failed');
+                        this.session.stage = 'APPLIED';
+                        this.showToast(
+                            'Applied ' + data.fileCount
+                            + ' file(s) to disk. Undo is available.',
+                            true);
+                    } catch (e) {
+                        this.showToast('Apply failed: ' + e.message, false);
+                    } finally {
+                        this.applying = false;
+                    }
+                },
+
+                async undoApply() {
+                    if (!this.session || this.undoing) return;
+                    if (!confirm('Restore all files from the last apply? '
+                            + 'This cannot be re-applied without re-running the implementer.')) {
+                        return;
+                    }
+                    this.undoing = true;
+                    this.actionToast = '';
+                    try {
+                        const res = await fetch(
+                            '/pipeline/' + this.session.sessionId + '/undo',
+                            { method: 'POST' });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.error || 'Undo failed');
+                        this.session.stage = 'IMPLEMENTATION_READY';
+                        this.showToast(
+                            'Restored ' + data.fileCount + ' file(s) from backup.',
+                            true);
+                    } catch (e) {
+                        this.showToast('Undo failed: ' + e.message, false);
+                    } finally {
+                        this.undoing = false;
+                    }
                 },
 
                 reject() {
-                    this.showToast('Changes rejected. Feedback channel reopened.', false);
+                    if (!this.session) return;
+                    if (!confirm('Reject this diff and go back to clarification?')) return;
+                    window.location.href = '/?session=' + this.session.sessionId;
                 }
             };
         }

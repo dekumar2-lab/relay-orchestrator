@@ -101,6 +101,46 @@ public class TokenMetricsService extends MigrationSupport {
                 return n == null ? 0 : n;
         }
 
+        public long inputTokensToday() {
+                String todayStart = LocalDateTime.now().toLocalDate().atStartOfDay().toString();
+                Long n = jdbc.queryForObject(
+                                "SELECT COALESCE(SUM(input_tokens_after), 0) FROM " + TABLE
+                                                + " WHERE created_at >= ?",
+                                Long.class, todayStart);
+                return n == null ? 0L : n;
+        }
+
+        public long outputTokensToday() {
+                String todayStart = LocalDateTime.now().toLocalDate().atStartOfDay().toString();
+                Long n = jdbc.queryForObject(
+                                "SELECT COALESCE(SUM(output_tokens_after), 0) FROM " + TABLE
+                                                + " WHERE created_at >= ?",
+                                Long.class, todayStart);
+                return n == null ? 0L : n;
+        }
+
+        public int callsToday() {
+                String todayStart = LocalDateTime.now().toLocalDate().atStartOfDay().toString();
+                Integer n = jdbc.queryForObject(
+                                "SELECT COUNT(*) FROM " + TABLE + " WHERE created_at >= ?",
+                                Integer.class, todayStart);
+                return n == null ? 0 : n;
+        }
+
+        public long totalInputTokens() {
+                Long n = jdbc.queryForObject(
+                                "SELECT COALESCE(SUM(input_tokens_after), 0) FROM " + TABLE,
+                                Long.class);
+                return n == null ? 0L : n;
+        }
+
+        public long totalOutputTokens() {
+                Long n = jdbc.queryForObject(
+                                "SELECT COALESCE(SUM(output_tokens_after), 0) FROM " + TABLE,
+                                Long.class);
+                return n == null ? 0L : n;
+        }
+
         public double costToday() {
                 String todayStart = LocalDateTime.now().toLocalDate().atStartOfDay().toString();
                 Double d = jdbc.queryForObject(
@@ -161,5 +201,26 @@ public class TokenMetricsService extends MigrationSupport {
                                         rs.getDouble("estimated_cost_usd"),
                                         LocalDateTime.parse(rs.getString("created_at")));
                 }
+        }
+
+        /**
+         * Approximates GitHub's "premium requests" counter. One (session_id, role)
+         * pair = one user-initiated operation = one premium request on the Copilot
+         * side, regardless of how many HTTP calls served it.
+         */
+        public int approximatePremiumRequestsToday() {
+                String todayStart = LocalDateTime.now().toLocalDate().atStartOfDay().toString();
+                Integer n = jdbc.queryForObject(
+                                "SELECT COUNT(DISTINCT session_id || '|' || role) "
+                                                + "FROM " + TABLE + " WHERE created_at >= ?",
+                                Integer.class, todayStart);
+                return n == null ? 0 : n;
+        }
+
+        public int approximatePremiumRequestsAllTime() {
+                Integer n = jdbc.queryForObject(
+                                "SELECT COUNT(DISTINCT session_id || '|' || role) FROM " + TABLE,
+                                Integer.class);
+                return n == null ? 0 : n;
         }
 }

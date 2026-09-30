@@ -79,3 +79,153 @@ body {
     color: #64748b;
     font-weight: 600;
 }
+
+/* -------------------------------------------------------------- */
+/* Markdown rendering for artifacts (plan, review, explain, doc)  */
+/* Used by .md-body. Replaces Tailwind Typography, which the CDN  */
+/* build of Tailwind does not include.                            */
+/* -------------------------------------------------------------- */
+
+.md-body {
+    font-size: 13px;
+    line-height: 1.65;
+    color: #334155;
+}
+
+.md-body > *:first-child { margin-top: 0; }
+.md-body > *:last-child  { margin-bottom: 0; }
+
+.md-body h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #0f172a;
+    margin: 0 0 0.75rem 0;
+}
+
+.md-body h2 {
+    font-size: 1.02rem;
+    font-weight: 600;
+    color: #0f172a;
+    margin: 1.25rem 0 0.5rem 0;
+    padding-top: 0.6rem;
+    border-top: 1px solid #e2e8f0;
+}
+
+.md-body h2:first-child {
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+}
+
+.md-body h3 {
+    font-size: 0.94rem;
+    font-weight: 600;
+    color: #1e293b;
+    margin: 1rem 0 0.4rem 0;
+}
+
+.md-body h4 {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #334155;
+    margin: 0.85rem 0 0.35rem 0;
+}
+
+.md-body p {
+    margin: 0 0 0.75rem 0;
+}
+
+.md-body ul,
+.md-body ol {
+    margin: 0 0 0.75rem 0;
+    padding-left: 1.4rem;
+}
+
+.md-body li {
+    margin: 0.15rem 0;
+}
+
+.md-body ul > li { list-style-type: disc; }
+.md-body ol > li { list-style-type: decimal; }
+
+.md-body li > ul,
+.md-body li > ol {
+    margin: 0.15rem 0;
+}
+
+.md-body code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    background: #f1f5f9;
+    color: #1e40af;
+    padding: 1px 5px;
+    border-radius: 4px;
+}
+
+.md-body pre {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 0 0 0.75rem 0;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.md-body pre code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    font-size: 12px;
+}
+
+.md-body blockquote {
+    border-left: 3px solid #cbd5e1;
+    padding-left: 0.75rem;
+    color: #64748b;
+    font-style: italic;
+    margin: 0 0 0.75rem 0;
+}
+
+.md-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 0.75rem 0;
+    font-size: 12px;
+}
+
+.md-body th,
+.md-body td {
+    border: 1px solid #e2e8f0;
+    padding: 0.4rem 0.6rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+.md-body th {
+    background: #f8fafc;
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.md-body a {
+    color: #2563eb;
+    text-decoration: underline;
+}
+
+.md-body hr {
+    border: none;
+    border-top: 1px solid #e2e8f0;
+    margin: 1rem 0;
+}
+
+.md-body strong {
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.md-body em {
+    font-style: italic;
+    color: #64748b;
+}

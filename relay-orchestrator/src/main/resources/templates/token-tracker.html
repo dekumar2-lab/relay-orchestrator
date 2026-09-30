@@ -1,28 +1,39 @@
 <div th:fragment="content" class="space-y-5">
 
-    <!-- KPI strip -->
-    <div class="grid grid-cols-3 gap-3">
+    <div class="grid grid-cols-4 gap-3">
         <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-            <span class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 block">Cost Today</span>
-            <div class="mt-1 flex items-baseline gap-1">
+            <span class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 block">Copilot Requests Today</span>
+            <div class="mt-1 flex items-baseline gap-2">
                 <span class="font-mono text-[22px] font-semibold text-slate-900 tracking-tight"
-                      th:text="'$' + ${#numbers.formatDecimal(persistentCostToday != null ? persistentCostToday : 0.0, 1, 4)}">$0.0000</span>
+                      th:text="${approxPremiumRequestsToday != null ? approxPremiumRequestsToday : 0}">0</span>
+                <span class="font-mono text-[11px] text-slate-400">of 200</span>
             </div>
-            <p class="text-[10px] text-slate-500 mt-1 font-mono">in USD equivalent</p>
+            <p class="text-[10px] text-slate-500 mt-1 font-mono">
+                approx · from <span th:text="${callsToday != null ? callsToday : 0}">0</span> LLM calls
+            </p>
         </div>
 
         <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-            <span class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 block">Tokens Today</span>
-            <div class="mt-1 flex items-baseline gap-1">
+            <span class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 block">Input Tokens Today</span>
+            <div class="mt-1">
                 <span class="font-mono text-[22px] font-semibold text-blue-700 tracking-tight"
-                      th:text="${persistentTokensToday != null ? #numbers.formatInteger(persistentTokensToday, 0, 'COMMA') : '0'}">0</span>
+                      th:text="${inputTokensToday != null ? #numbers.formatInteger(inputTokensToday, 0, 'COMMA') : '0'}">0</span>
             </div>
-            <p class="text-[10px] text-slate-500 mt-1 font-mono">input + output</p>
+            <p class="text-[10px] text-slate-500 mt-1 font-mono">prompt side</p>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+            <span class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 block">Output Tokens Today</span>
+            <div class="mt-1">
+                <span class="font-mono text-[22px] font-semibold text-emerald-700 tracking-tight"
+                      th:text="${outputTokensToday != null ? #numbers.formatInteger(outputTokensToday, 0, 'COMMA') : '0'}">0</span>
+            </div>
+            <p class="text-[10px] text-slate-500 mt-1 font-mono">completion side</p>
         </div>
 
         <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
             <span class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 block">Recorded Calls</span>
-            <div class="mt-1 flex items-baseline gap-1">
+            <div class="mt-1">
                 <span class="font-mono text-[22px] font-semibold text-violet-600 tracking-tight"
                       th:text="${persistentRecords != null ? persistentRecords : 0}">0</span>
             </div>
@@ -30,10 +41,7 @@
         </div>
     </div>
 
-    <!-- Ledger + Compression -->
     <div class="grid grid-cols-3 gap-5">
-
-        <!-- Ledger -->
         <div class="col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
             <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
                 <div class="flex items-center gap-2">
@@ -46,13 +54,12 @@
             <div class="p-2">
                 <div th:if="${persistentRecent == null or persistentRecent.empty}"
                      class="text-center py-10 text-[12px] text-slate-500 italic font-mono">
-                    No calls recorded yet. Run a story from Pipeline Stages.
+                    No calls recorded yet.
                 </div>
 
                 <div class="space-y-1">
                     <div th:each="m : ${persistentRecent}"
                          class="p-3 rounded-lg bg-white hover:bg-slate-50 transition space-y-1.5">
-
                         <div class="flex items-center justify-between gap-2">
                             <div class="flex items-center gap-2 min-w-0">
                                 <span class="font-mono text-[11px] text-slate-500 font-medium"
@@ -60,22 +67,23 @@
                                 <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold"
                                       th:classappend="${m.role.name() == 'ORCHESTRATOR'} ? 'bg-blue-50 text-blue-700' :
                                                        (${m.role.name() == 'IMPLEMENTER'} ? 'bg-violet-50 text-violet-700' :
-                                                       (${m.role.name() == 'TESTER'} ? 'bg-emerald-50 text-emerald-700' :
-                                                       (${m.role.name() == 'DOCUMENTER'} ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600')))"
+                                                       (${m.role.name() == 'ANALYST'} ? 'bg-cyan-50 text-cyan-700' :
+                                                       (${m.role.name() == 'DOCUMENTER'} ? 'bg-amber-50 text-amber-700' :
+                                                       (${m.role.name() == 'REVIEWER'} ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-600'))))"
                                       th:text="${m.role.name()}">ROLE</span>
                             </div>
-                            <span class="font-mono text-[13px] font-semibold text-slate-900 shrink-0"
-                                  th:text="'$' + ${#numbers.formatDecimal(m.estimatedCostUsd, 1, 4)}">$0.0000</span>
+                            <span class="font-mono text-[13px] font-semibold text-slate-700 shrink-0"
+                                  th:text="'#' + ${m.id}">#0</span>
                         </div>
 
                         <div class="flex items-center justify-between gap-2">
                             <span class="text-[12px] font-medium text-slate-800 truncate"
                                   th:text="${m.personaName != null ? m.personaName : '-'}">persona</span>
                             <div class="flex items-center gap-2 font-mono text-[11px] text-slate-500 shrink-0">
-                                <span>In: <strong class="text-slate-800 font-semibold"
+                                <span>In: <strong class="text-blue-700 font-semibold"
                                                   th:text="${#numbers.formatInteger(m.inputTokensAfter, 0, 'COMMA')}">0</strong></span>
                                 <span>·</span>
-                                <span>Out: <strong class="text-slate-800 font-semibold"
+                                <span>Out: <strong class="text-emerald-700 font-semibold"
                                                    th:text="${#numbers.formatInteger(m.outputTokensAfter, 0, 'COMMA')}">0</strong></span>
                             </div>
                         </div>
@@ -84,7 +92,6 @@
             </div>
         </div>
 
-        <!-- Compression Skills -->
         <div class="col-span-1 bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
             <div class="flex items-center gap-2">
                 <span class="material-symbols-outlined text-violet-600 text-[18px]">compress</span>
@@ -118,17 +125,22 @@
                 </div>
             </div>
 
-            <div class="rounded-lg bg-slate-50 p-3.5 space-y-2 opacity-60">
+            <div class="rounded-lg bg-slate-50 p-3.5 space-y-1">
                 <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <span class="material-symbols-outlined text-slate-500 text-[16px]">account_tree</span>
-                        <span class="text-[12px] font-medium text-slate-700">Retrieval Trimming</span>
-                    </div>
-                    <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-slate-200 text-slate-600">PLANNED</span>
+                    <span class="text-[12px] font-medium text-slate-700">All-time Input</span>
+                    <span class="font-mono text-[12px] font-semibold text-blue-700"
+                          th:text="${totalInputTokens != null ? #numbers.formatInteger(totalInputTokens, 0, 'COMMA') : '0'}">0</span>
                 </div>
-                <p class="text-[11px] text-slate-500 leading-relaxed">
-                    AST-guided dependency tree slice before LLM ingest.
-                </p>
+                <div class="flex items-center justify-between">
+                    <span class="text-[12px] font-medium text-slate-700">All-time Output</span>
+                    <span class="font-mono text-[12px] font-semibold text-emerald-700"
+                          th:text="${totalOutputTokens != null ? #numbers.formatInteger(totalOutputTokens, 0, 'COMMA') : '0'}">0</span>
+                </div>
+                <div class="flex items-center justify-between pt-1 border-t border-slate-200">
+                    <span class="text-[12px] font-medium text-slate-800">All-time LLM Calls</span>
+                    <span class="font-mono text-[12px] font-semibold text-slate-900"
+                          th:text="${persistentRecords != null ? persistentRecords : 0}">0</span>
+                </div>
             </div>
         </div>
     </div>

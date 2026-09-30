@@ -6,6 +6,8 @@ import org.springframework.boot.web.server.WebServerFactoryCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import com.relay.orchestrator.logging.ClientDisconnectDetector;
+
 @Configuration
 public class TomcatNoiseSuppressorConfig {
 
@@ -32,23 +34,7 @@ public class TomcatNoiseSuppressorConfig {
         }
 
         private boolean isClientDisconnect(Throwable t) {
-            Throwable cur = t;
-            while (cur != null) {
-                String msg = cur.getMessage();
-                if (msg != null) {
-                    String lower = msg.toLowerCase(java.util.Locale.ROOT);
-                    if (lower.contains("aborted by the software in your host machine")
-                            || lower.contains("broken pipe")
-                            || lower.contains("connection reset")
-                            || lower.contains("connection aborted")
-                            || lower.contains("socket closed")
-                            || lower.contains("software caused connection abort")) {
-                        return true;
-                    }
-                }
-                cur = cur.getCause();
-            }
-            return false;
+            return ClientDisconnectDetector.isDisconnect(t);
         }
     }
 }

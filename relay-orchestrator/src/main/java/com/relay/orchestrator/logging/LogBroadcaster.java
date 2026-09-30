@@ -7,12 +7,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Deque;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -61,6 +57,18 @@ public class LogBroadcaster {
             }
         }
         return emitter;
+    }
+
+    /**
+     * Empty the server-side replay buffer. Called by /logs/clear so a page
+     * reload doesn't resurrect lines the user has dismissed. Live subscribers
+     * are untouched — new events still stream.
+     */
+    public void clear() {
+        synchronized (bufferLock) {
+            replayBuffer.clear();
+        }
+        log.info("Log replay buffer cleared");
     }
 
     public void publish(LogEvent event) {
@@ -120,58 +128,6 @@ public class LogBroadcaster {
     }
 
     private boolean isSocketDisconnect(Throwable t) {
-        // Guard against emitters that the container has already completed.
-        // The next send() throws IllegalStateException with a specific message.
-        if (t instanceof IllegalStateException) {
-            String m = t.getMessage();
-            if (m != null && m.contains("ResponseBodyEmitter has already completed")) {
-                return true;
-            }
-        }
-
-        Set<String> disconnectMarkers = new HashSet<>(Arrays.asList(
-                "broken pipe",
-                "connection aborted",
-                "connection reset",
-                "connection reset by peer",
-                "socket closed",
-                "disconnected",
-                "aborted by the software in your host machine",
-                "software caused connection abort",
-                "connection closed",
-                "connection has been closed",
-                "an existing connection was forcibly closed",
-                "responsebodyemitter has already completed",
-                "ioexception: broken pipe",
-                "ioexception: connection reset by peer",
-                "java.net.socketexception: broken pipe",
-                "java.net.socketexception: connection reset",
-                "java.net.socketexception: socket closed",
-                "java.io.ioexception: broken pipe",
-                "org.apache.catalina.connector.clientabortexception",
-                "clientabortexception"));
-
-        Throwable current = t;
-        while (current != null) {
-            String message = current.getMessage();
-            if (message != null) {
-                String lowered = message.toLowerCase(Locale.ROOT);
-                for (String marker : disconnectMarkers) {
-                    if (lowered.contains(marker)) {
-                        return true;
-                    }
-                }
-            }
-
-            String className = current.getClass().getName();
-            if (className != null
-                    && className.toLowerCase(Locale.ROOT).contains("clientabortexception")) {
-                return true;
-            }
-
-            current = current.getCause();
-        }
-
-        return false;
+        return ClientDisconnectDetector.isDisconnect(t);
     }
 }

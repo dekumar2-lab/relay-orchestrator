@@ -325,20 +325,32 @@ public abstract class BaseProducer implements Producer {
 
     protected String bullets(List<String> items) {
         if (items == null || items.isEmpty())
-            return "_(none)_";
+            return "_(none)_\n";
         StringBuilder sb = new StringBuilder();
-        for (String item : items)
-            sb.append("- ").append(item).append("\n");
+        for (String item : items) {
+            String cleaned = item == null ? ""
+                    : item.replaceFirst("^\\s*[-*•]\\s+", "")
+                            .replaceFirst("^\\s*\\d+[.)]\\s+", "")
+                            .trim();
+            sb.append("- ").append(cleaned).append("\n");
+        }
         return sb.toString();
     }
 
     protected String numbered(List<String> items) {
         if (items == null || items.isEmpty())
-            return "_(none)_";
+            return "_(none)_\n";
         StringBuilder sb = new StringBuilder();
         int i = 1;
-        for (String item : items)
-            sb.append(i++).append(". ").append(item).append("\n");
+        for (String item : items) {
+            // The LLM often returns items already prefixed with "1. ", "2) ",
+            // "- " etc. Strip the prefix so our own numbering is the only one.
+            String cleaned = item == null ? ""
+                    : item.replaceFirst("^\\s*\\d+[.)]\\s+", "")
+                            .replaceFirst("^\\s*[-*•]\\s+", "")
+                            .trim();
+            sb.append(i++).append(". ").append(cleaned).append("\n");
+        }
         return sb.toString();
     }
 }

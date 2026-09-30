@@ -9,8 +9,11 @@ package com.relay.orchestrator.artifact;
  * kinds exist.
  */
 public enum ArtifactKind {
-    PLAN, // implementation plan (PLANNER role)
-    DESIGN, // architecture/design doc (PLANNER role)
-    RCA, // root cause analysis (REVIEWER role)
-    REVIEW // code review of a proposed diff (REVIEWER role)
+    PLAN,
+    DESIGN,
+    RCA,
+    REVIEW,
+    EXPLAIN,
+    DOC,
+    TEST_RUN // TestRunResult
 }

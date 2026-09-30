@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,7 +8,9 @@
 
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/sse.js"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -30,122 +33,181 @@
         }
     </script>
 </head>
+
 <body class="bg-slate-50 text-slate-800 font-sans min-h-screen">
-<div th:fragment="content" class="max-w-3xl space-y-5 p-2">
+    <div th:fragment="content" class="max-w-3xl space-y-5 p-2">
 
-    <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div class="border-b border-slate-100 px-5 py-3">
-            <h2 class="text-[14px] font-semibold text-slate-900">Connection &amp; Prerequisites</h2>
-        </div>
+        <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div class="border-b border-slate-100 px-5 py-3">
+                <h2 class="text-[14px] font-semibold text-slate-900">Connection &amp; Prerequisites</h2>
+            </div>
 
-        <form id="connection-form" th:action="@{/connection/test}" th:object="${config}" method="post"
-              class="space-y-5 px-5 py-5">
+            <form id="connection-form" th:action="@{/settings/save}" th:object="${config}" method="post"
+                class="space-y-5 px-5 py-5">
 
-            <!-- Provider -->
-            <div>
-                <label class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Provider</label>
-                <div class="flex gap-3">
-                    <label th:each="providerOption : ${providerOptions}"
-                           class="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] text-slate-700 hover:bg-white transition cursor-pointer">
-                        <input type="radio" th:field="*{provider}" th:value="${providerOption}"
-                               class="text-blue-600 focus:ring-blue-500">
-                        <span th:text="${providerOption.label}">GitHub Copilot</span>
-                    </label>
+                <!-- Provider -->
+                <div>
+                    <label
+                        class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Provider</label>
+                    <div class="flex gap-3">
+                        <label th:each="providerOption : ${providerOptions}"
+                            class="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] text-slate-700 hover:bg-white transition cursor-pointer">
+                            <input type="radio" th:field="*{provider}" th:value="${providerOption}"
+                                class="text-blue-600 focus:ring-blue-500">
+                            <span th:text="${providerOption.label}">GitHub Copilot</span>
+                        </label>
+                    </div>
                 </div>
-            </div>
 
-            <!-- GitHub token -->
-            <div th:if="${config.provider.name() == 'GITHUB_COPILOT'}">
-                <label class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">GitHub token</label>
-                <input type="password" th:field="*{githubToken}"
-                       class="w-full h-9 rounded-md border border-slate-200 bg-white px-3 text-[13px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                       placeholder="github_pat_..." autocomplete="off">
-                <p class="mt-1.5 text-[11px] text-slate-500">
-                    A GitHub fine-grained personal access token. Generate one at
-                    <a href="https://github.com/settings/tokens?type=beta" target="_blank"
-                       class="text-blue-600 hover:underline">github.com/settings/tokens</a>
-                    with the Copilot Requests permission.
-                </p>
-            </div>
+                <!-- GitHub token -->
+                <div th:if="${config.provider.name() == 'GITHUB_COPILOT'}">
+                    <label class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">GitHub
+                        token</label>
+                    <input type="password" th:field="*{githubToken}"
+                        class="w-full h-9 rounded-md border border-slate-200 bg-white px-3 text-[13px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                        placeholder="github_pat_..." autocomplete="off">
+                    <p class="mt-1.5 text-[11px] text-slate-500">
+                        A GitHub fine-grained personal access token. Generate one at
+                        <a href="https://github.com/settings/tokens?type=beta" target="_blank"
+                            class="text-blue-600 hover:underline">github.com/settings/tokens</a>
+                        with the Copilot Requests permission.
+                    </p>
+                </div>
 
-            <!-- Model -->
-            <div>
-                <label class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Model</label>
-                <input type="text" th:field="*{model}"
-                       class="w-full h-9 rounded-md border border-slate-200 bg-white px-3 text-[13px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                       placeholder="claude-sonnet-4-5">
-                <p class="mt-1.5 text-[11px] text-slate-500">
-                    The model to request from Copilot, e.g. claude-sonnet-4-5 or gpt-4.1.
-                </p>
-            </div>
+                <!-- Model -->
+                <div>
+                    <label
+                        class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Model</label>
+                    <input type="text" th:field="*{model}"
+                        class="w-full h-9 rounded-md border border-slate-200 bg-white px-3 text-[13px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                        placeholder="claude-sonnet-4-5">
+                    <p class="mt-1.5 text-[11px] text-slate-500">
+                        The model to request from Copilot, e.g. claude-sonnet-4-5 or gpt-4.1.
+                    </p>
+                </div>
 
-            <!-- Workspace -->
-            <div>
-                <label class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Workspace directory</label>
-                <input type="text" th:field="*{workspaceDir}"
-                       class="w-full h-9 rounded-md border border-slate-200 bg-white px-3 font-mono text-[12px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                       placeholder="C:/workspace/relay-orchestrator">
-            </div>
+                <!-- Workspace -->
+                <div>
+                    <label
+                        class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Workspace
+                        directory</label>
+                    <input type="text" th:field="*{workspaceDir}"
+                        class="w-full h-9 rounded-md border border-slate-200 bg-white px-3 font-mono text-[12px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                        placeholder="C:/workspace/relay-orchestrator">
+                </div>
 
-            <!-- Request budget -->
-            <div>
-                <label class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Request budget per run</label>
-                <input type="number" th:field="*{requestBudget}" min="1"
-                       class="w-32 h-9 rounded-md border border-slate-200 bg-white px-3 text-[13px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
-            </div>
+                <!-- Request budget -->
+                <div>
+                    <label class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Request
+                        budget per run</label>
+                    <input type="number" th:field="*{requestBudget}" min="1"
+                        class="w-32 h-9 rounded-md border border-slate-200 bg-white px-3 text-[13px] text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                </div>
 
-            <!-- Test button -->
-            <button type="button" id="test-connection-btn"
-                    class="h-9 px-4 rounded-md bg-blue-600 text-white hover:bg-blue-700 font-medium text-[13px] transition disabled:bg-slate-300 disabled:cursor-not-allowed">
-                Test Connection
-            </button>
-        </form>
-    </section>
+                <!-- Actions -->
+                <div class="flex items-center gap-2">
+                    <button type="button" id="save-btn"
+                        class="h-9 px-4 rounded-md bg-blue-600 text-white hover:bg-blue-700 font-medium text-[13px] flex items-center gap-1.5 transition disabled:bg-slate-300 disabled:cursor-not-allowed">
+                        <span class="material-symbols-outlined text-[16px]">save</span>
+                        Save
+                    </button>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            const form = document.getElementById('connection-form');
-            const button = document.getElementById('test-connection-btn');
-            if (!form || !button) return;
+                    <button type="button" id="test-connection-btn"
+                        class="h-9 px-4 rounded-md bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium text-[13px] transition disabled:bg-slate-300 disabled:cursor-not-allowed">
+                        Test Connection
+                    </button>
+                </div>
+            </form>
+        </section>
 
-            button.addEventListener('click', function (event) {
-                event.preventDefault();
-                event.stopPropagation();
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                const form = document.getElementById('connection-form');
+                const testBtn = document.getElementById('test-connection-btn');
+                const saveBtn = document.getElementById('save-btn');
 
-                const formData = new FormData(form);
-                const params = new URLSearchParams();
-                for (const [key, value] of formData.entries()) {
-                    params.append(key, value);
+                if (!form) {
+                    console.warn('connection-form not found');
+                    return;
                 }
 
-                button.disabled = true;
-                button.textContent = 'Testing...';
+                // ----- Test Connection -----
+                if (testBtn) {
+                    testBtn.addEventListener('click', function (event) {
+                        event.preventDefault();
+                        event.stopPropagation();
 
-                fetch(form.action, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                    body: params.toString()
-                })
-                .then(async (response) => {
-                    const payload = await response.json().catch(() => ({ message: 'Connection test started.' }));
-                    if (!response.ok) {
-                        throw new Error(payload.message || 'Connection test failed.');
-                    }
-                    return payload;
-                })
-                .then((payload) => {
-                    alert(payload.message || 'Connection test started.');
-                })
-                .catch((error) => {
-                    alert(error.message || 'Connection test failed.');
-                })
-                .finally(() => {
-                    button.disabled = false;
-                    button.textContent = 'Test Connection';
-                });
+                        const formData = new FormData(form);
+                        const params = new URLSearchParams();
+                        for (const [k, v] of formData.entries()) params.append(k, v);
+
+                        testBtn.disabled = true;
+                        const originalText = testBtn.textContent;
+                        testBtn.textContent = 'Testing...';
+
+                        fetch('/connection/test', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                            body: params.toString()
+                        })
+                            .then(async (response) => {
+                                const payload = await response.json().catch(() => ({ message: 'Connection test started.' }));
+                                if (!response.ok) throw new Error(payload.message || 'Connection test failed.');
+                                return payload;
+                            })
+                            .then((payload) => {
+                                alert(payload.message || 'Connection test started. Watch the log panel.');
+                            })
+                            .catch((err) => {
+                                alert(err.message || 'Connection test failed.');
+                            })
+                            .finally(() => {
+                                testBtn.disabled = false;
+                                testBtn.textContent = originalText;
+                            });
+                    });
+                }
+
+                // ----- Save -----
+                if (saveBtn) {
+                    saveBtn.addEventListener('click', function (event) {
+                        event.preventDefault();
+                        event.stopPropagation();
+
+                        const formData = new FormData(form);
+                        const params = new URLSearchParams();
+                        for (const [k, v] of formData.entries()) params.append(k, v);
+
+                        saveBtn.disabled = true;
+                        const originalHtml = saveBtn.innerHTML;
+                        saveBtn.innerHTML = '<span class="material-symbols-outlined text-[16px]">hourglass</span> Saving...';
+
+                        fetch('/settings/save', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                            body: params.toString()
+                        })
+                            .then(r => {
+                                if (!r.ok) throw new Error('Save failed (HTTP ' + r.status + ')');
+                                return r.json();
+                            })
+                            .then(() => {
+                                saveBtn.innerHTML = '<span class="material-symbols-outlined text-[16px]">check</span> Saved';
+                                setTimeout(() => {
+                                    saveBtn.innerHTML = originalHtml;
+                                    saveBtn.disabled = false;
+                                }, 1500);
+                            })
+                            .catch(e => {
+                                alert(e.message || 'Save failed');
+                                saveBtn.innerHTML = originalHtml;
+                                saveBtn.disabled = false;
+                            });
+                    });
+                }
             });
-        });
-    </script>
-</div>
+        </script>
+    </div>
 </body>
+
 </html>

@@ -11,6 +11,8 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.Marker;
 import org.springframework.stereotype.Component;
 
+import com.relay.orchestrator.logging.ClientDisconnectDetector;
+
 import java.util.Locale;
 
 @Component
@@ -63,24 +65,6 @@ public class SseDisconnectLogFilter extends TurboFilter {
     }
 
     private boolean isClientDisconnect(Throwable t) {
-        Throwable cur = t;
-        while (cur != null) {
-            String msg = cur.getMessage();
-            if (msg != null) {
-                String lower = msg.toLowerCase(Locale.ROOT);
-                for (String marker : DISCONNECT_MARKERS) {
-                    if (lower.contains(marker)) {
-                        return true;
-                    }
-                }
-            }
-            // Also match by class name — ClientAbortException has no message
-            String cn = cur.getClass().getName();
-            if (cn != null && cn.toLowerCase(Locale.ROOT).contains("clientabortexception")) {
-                return true;
-            }
-            cur = cur.getCause();
-        }
-        return false;
-    }
+    return ClientDisconnectDetector.isDisconnect(t);
+}
 }

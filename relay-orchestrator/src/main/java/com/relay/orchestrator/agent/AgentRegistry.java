@@ -1,6 +1,8 @@
 package com.relay.orchestrator.agent;
 
 import com.relay.orchestrator.config.AppConfigManager;
+import com.relay.orchestrator.config.ConfigChangedEvent;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.Resource;
@@ -42,26 +44,32 @@ public class AgentRegistry {
 
     /** Resolve the persona that fills a role, or a generic fallback. */
     public AgentPersona getForRole(AgentRole role) {
-        AgentConfig cfg = appConfig.getAgentConfig();
-         log.info("getForRole({}): enabled={} mapped={}",
-                role, cfg.enabled(), cfg.personaFor(role));
+    AgentConfig cfg = appConfig.getAgentConfig();
 
-        if (!cfg.enabled()) {
-            return AgentPersona.generic(role.name());
-        }
+    if (!cfg.enabled()) return AgentPersona.generic(role.name());
 
-        Optional<String> personaName = cfg.personaFor(role);
-        if (personaName.isEmpty()) {
-            return AgentPersona.generic(role.name());
-        }
+    Optional<String> personaName = cfg.personaFor(role);
+    if (personaName.isEmpty()) return resolveFallback(cfg, role);
 
-        Optional<AgentPersona> loaded = load(personaName.get());
-        return loaded.orElseGet(() -> {
-            log.warn("Persona '{}' for role {} not found, using generic fallback",
-                    personaName.get(), role);
-            return AgentPersona.generic(role.name());
-        });
+    return load(personaName.get()).orElseGet(() -> {
+        log.warn("Persona '{}' for role {} not found, using fallback", personaName.get(), role);
+        return resolveFallback(cfg, role);
+    });
+}
+
+private AgentPersona resolveFallback(AgentConfig cfg, AgentRole role) {
+    String fb = cfg.fallbackPersona();
+    if (fb != null && !fb.isBlank() && !"generic".equals(fb)) {
+        Optional<AgentPersona> loaded = load(fb);
+        if (loaded.isPresent()) return loaded.get();
     }
+    return AgentPersona.generic(role.name());
+}
+
+@org.springframework.context.event.EventListener
+public void onConfigChanged(ConfigChangedEvent e) {
+    invalidate();
+}
 
     /** Load a persona by folder name. Empty if not found anywhere. */
     public Optional<AgentPersona> load(String personaName) {

@@ -34,8 +34,7 @@ public class CopilotLlmClient implements LlmClient {
         body.put("op", "chat");
         body.put("model", request.model());
         body.put("maxTokens", request.maxTokens());
-        if (request.temperature() > 0.0)
-            body.put("temperature", request.temperature());
+        body.put("temperature", request.temperature());
 
         // Pass the token from config so the bridge uses it directly.
         // Empty falls back to env / VS Code / gh CLI inside the bridge.
