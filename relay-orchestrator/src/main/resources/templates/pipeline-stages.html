@@ -6,7 +6,7 @@
 
         <!-- Fixed stepper -->
         <div class="fixed left-64 right-0 top-16 z-30 bg-slate-50 border-b border-slate-200 px-6 py-2">
-            
+
         </div>
 
 
@@ -646,6 +646,7 @@
                                         x-text="pendingIs('Review') ? 'autorenew' : 'rule'"></span>
                                     <span x-text="pendingIs('Review') ? 'Reviewing...' : 'Generate Review'"></span>
                                 </button>
+
                                 <button x-show="review && review?.verdict && review?.verdict !== 'APPROVE'"
                                     type="button" @click="reimplement()" :disabled="busy()"
                                     class="h-8 px-4 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
@@ -655,6 +656,7 @@
                                     <span
                                         x-text="pendingIs('Implement') ? 'Re-implementing...' : 'Re-implement with Feedback'"></span>
                                 </button>
+
                                 <a :href="'/code-preview?session=' + session.sessionId"
                                     class="h-8 px-4 rounded-md bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium text-[12px] flex items-center gap-1.5 transition">
                                     <span class="material-symbols-outlined text-[14px]">difference</span>
@@ -771,7 +773,7 @@
                                     <span
                                         x-text="runningTests ? 'Running...' : (testResult ? 'Re-run Tests' : 'Run Tests')"></span>
                                 </button>
-                                <button x-show="testResult && testResult.status !== 'TESTS_PASSED'" type="button"
+                                <!-- <button x-show="testResult && testResult.status !== 'TESTS_PASSED'" type="button"
                                     @click="reimplement()" :disabled="busy()"
                                     class="h-8 px-4 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-[12px] flex items-center gap-1.5 shadow-sm transition">
                                     <span class="material-symbols-outlined text-[14px]"
@@ -779,8 +781,45 @@
                                         x-text="pendingIs('Implement') ? 'autorenew' : 'refresh'"></span>
                                     <span
                                         x-text="pendingIs('Implement') ? 'Re-implementing...' : 'Re-implement with Feedback'"></span>
-                                </button>
+                                </button> -->
                             </div>
+                        </div>
+                    </div>
+                </template>
+                <!-- COMPILE_FAILED card -->
+                <template x-if="session && session.stage === 'COMPILE_FAILED'">
+                    <div class="rounded-xl border border-red-300 bg-red-50 shadow-sm overflow-hidden">
+                        <div class="px-4 py-3 border-b border-red-200 flex items-center gap-2">
+                            <span class="material-symbols-outlined text-red-700 text-[18px]">error</span>
+                            <span class="text-[13px] font-semibold text-red-900">Compilation failed</span>
+                            <span
+                                class="text-[10px] font-mono text-red-700 bg-white/60 px-1.5 py-0.5 rounded-full ml-auto">
+                                after retry
+                            </span>
+                        </div>
+                        <div class="px-4 py-3">
+                            <p class="text-[12px] text-slate-700 mb-3">
+                                Jim attempted the change, the compile gate applied it, and
+                                <code
+                                    class="px-1 py-0.5 rounded bg-white text-red-700 text-[11px] font-mono">mvn compile</code>
+                                failed. One retry was attempted; it also failed. The disk is clean —
+                                nothing has been applied. Fix the code with a new story, or re-implement with different
+                                guidance.
+                            </p>
+                            <div x-show="session.compileErrors">
+                                <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                                    Compiler output (tail)
+                                </p>
+                                <pre class="bg-slate-900 text-slate-100 rounded-md p-3 text-[11px] font-mono overflow-x-auto max-h-64 whitespace-pre-wrap"
+                                    x-text="(session.compileErrors || '').slice(-4000)"></pre>
+                            </div>
+                        </div>
+                        <div class="px-4 py-3 bg-white border-t border-red-200 flex items-center justify-end gap-2">
+                            <button type="button" @click="reset()"
+                                class="h-8 px-4 rounded-md bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium text-[12px] flex items-center gap-1.5 transition">
+                                <span class="material-symbols-outlined text-[14px]">refresh</span>
+                                Start over
+                            </button>
                         </div>
                     </div>
                 </template>
@@ -820,7 +859,7 @@
                     </div>
                 </div>
             </div> -->
-                        <!-- RIGHT COLUMN: pipeline journey -->
+            <!-- RIGHT COLUMN: pipeline journey -->
             <div class="col-span-1">
                 <div class="sticky top-4 space-y-4 max-h-[calc(100vh-2rem)] overflow-y-auto pr-1">
 
@@ -832,9 +871,8 @@
                                 <h3 class="text-[14px] font-semibold text-slate-900">Pipeline</h3>
                             </div>
                             <span x-show="session"
-                                  class="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wider"
-                                  :class="intentBadgeClass()"
-                                  x-text="intent"></span>
+                                class="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wider"
+                                :class="intentBadgeClass()" x-text="intent"></span>
                         </div>
 
                         <div class="px-4 py-3">
@@ -842,9 +880,10 @@
                                 <div class="flex items-start gap-3">
                                     <div class="flex flex-col items-center shrink-0" style="min-width: 20px;">
                                         <div class="w-5 h-5 rounded-full flex items-center justify-center"
-                                             :class="stepDotClass(step.state)">
+                                            :class="stepDotClass(step.state)">
                                             <template x-if="step.state === 'done'">
-                                                <span class="material-symbols-outlined text-[12px] text-white">check</span>
+                                                <span
+                                                    class="material-symbols-outlined text-[12px] text-white">check</span>
                                             </template>
                                             <template x-if="step.state === 'active'">
                                                 <span class="w-2 h-2 rounded-full bg-white animate-pulse"></span>
@@ -853,7 +892,8 @@
                                                 <span class="w-2 h-2 rounded-full bg-white"></span>
                                             </template>
                                             <template x-if="step.state === 'failed'">
-                                                <span class="material-symbols-outlined text-[12px] text-white">close</span>
+                                                <span
+                                                    class="material-symbols-outlined text-[12px] text-white">close</span>
                                             </template>
                                             <template x-if="step.state === 'queued'">
                                                 <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
@@ -864,17 +904,17 @@
                                         </div>
                                         <template x-if="idx < journey.length - 1">
                                             <div class="w-px flex-1 my-0.5 min-h-[18px]"
-                                                 :class="step.state === 'done' ? 'bg-emerald-300' : 'bg-slate-200'"></div>
+                                                :class="step.state === 'done' ? 'bg-emerald-300' : 'bg-slate-200'">
+                                            </div>
                                         </template>
                                     </div>
 
                                     <div class="flex-1 min-w-0 pb-3">
                                         <p class="text-[12px] font-semibold leading-tight"
-                                           :class="stepLabelClass(step.state)"
-                                           x-text="step.name"></p>
+                                            :class="stepLabelClass(step.state)" x-text="step.name"></p>
                                         <p class="text-[10px] mt-0.5 leading-tight"
-                                           :class="step.state === 'optional' ? 'text-slate-400 italic' : 'text-slate-500'"
-                                           x-text="step.detail"></p>
+                                            :class="step.state === 'optional' ? 'text-slate-400 italic' : 'text-slate-500'"
+                                            x-text="step.detail"></p>
                                     </div>
                                 </div>
                             </template>
@@ -904,7 +944,7 @@
                         </div>
                         <div class="pt-1 flex justify-end">
                             <a th:href="@{/token-tracker}"
-                               class="inline-flex items-center gap-1 text-[12px] font-medium text-blue-700 hover:text-blue-800 transition">
+                                class="inline-flex items-center gap-1 text-[12px] font-medium text-blue-700 hover:text-blue-800 transition">
                                 View Token Tracker
                                 <span class="material-symbols-outlined text-[14px]">arrow_forward</span>
                             </a>
@@ -988,7 +1028,7 @@
                         return this.session?.recommendedIntent || 'PLAN';
                     },
 
-                                        // ============================================================
+                    // ============================================================
                     // Pipeline journey — computed steps per intent
                     // ============================================================
 
@@ -1053,8 +1093,10 @@
                         }
                         if (!p) {
                             const ready = this.session?.stage === 'READY_TO_IMPLEMENT';
-                            return { key: 'plan', name: 'Plan', state: ready ? 'waiting' : 'queued',
-                                     detail: ready ? 'Ready to generate' : 'Runs after clarification' };
+                            return {
+                                key: 'plan', name: 'Plan', state: ready ? 'waiting' : 'queued',
+                                detail: ready ? 'Ready to generate' : 'Runs after clarification'
+                            };
                         }
                         if (p.status === 'DRAFT') {
                             return { key: 'plan', name: 'Plan', state: 'done', detail: 'Draft generated' };
@@ -1088,7 +1130,7 @@
                     buildImplementStep() {
                         const stage = this.session?.stage;
                         const hasDiff = !!(this.session?.implementationResult
-                                            && this.session.implementationResult.files?.length);
+                            && this.session.implementationResult.files?.length);
                         if (this.implementing || stage === 'IMPLEMENTATION_RUNNING') {
                             return { key: 'implement', name: 'Implement', state: 'active', detail: 'Agent is writing the diff...' };
                         }
@@ -1125,7 +1167,7 @@
                             return { key: 'review', name: 'Review', state: 'done', detail: 'Commented by ' + r.createdBy };
                         }
                         const hasDiff = !!(this.session?.implementationResult
-                                            && this.session.implementationResult.files?.length);
+                            && this.session.implementationResult.files?.length);
                         if (hasDiff) {
                             return { key: 'review', name: 'Review', state: 'optional', detail: 'Optional · generate for a second opinion' };
                         }
@@ -1143,8 +1185,10 @@
                             return { key: 'review', name: 'Review', state: 'done', detail: label + ' by ' + r.createdBy };
                         }
                         const ready = this.session?.stage === 'READY_TO_IMPLEMENT';
-                        return { key: 'review', name: 'Review', state: ready ? 'waiting' : 'queued',
-                                 detail: ready ? 'Ready to review the named file(s)' : 'Runs after clarification' };
+                        return {
+                            key: 'review', name: 'Review', state: ready ? 'waiting' : 'queued',
+                            detail: ready ? 'Ready to review the named file(s)' : 'Runs after clarification'
+                        };
                     },
 
                     buildTestStep() {
@@ -1154,8 +1198,10 @@
                         }
                         if (t) {
                             if (t.status === 'TESTS_PASSED') {
-                                return { key: 'test', name: 'Test', state: 'done',
-                                         detail: `${t.passedTests} passed in ${(t.durationMs / 1000).toFixed(1)}s` };
+                                return {
+                                    key: 'test', name: 'Test', state: 'done',
+                                    detail: `${t.passedTests} passed in ${(t.durationMs / 1000).toFixed(1)}s`
+                                };
                             }
                             if (t.status === 'COMPILE_FAILED') {
                                 return { key: 'test', name: 'Test', state: 'failed', detail: 'Compile failed — see report below' };
@@ -1163,11 +1209,13 @@
                             if (t.status === 'TIMEOUT') {
                                 return { key: 'test', name: 'Test', state: 'failed', detail: 'Timed out after 600s' };
                             }
-                            return { key: 'test', name: 'Test', state: 'failed',
-                                     detail: `${t.failedTests} failed · ${t.passedTests} passed` };
+                            return {
+                                key: 'test', name: 'Test', state: 'failed',
+                                detail: `${t.failedTests} failed · ${t.passedTests} passed`
+                            };
                         }
                         const hasDiff = !!(this.session?.implementationResult
-                                            && this.session.implementationResult.files?.length);
+                            && this.session.implementationResult.files?.length);
                         if (hasDiff) {
                             return { key: 'test', name: 'Test', state: 'waiting', detail: 'Ready to run test harness' };
                         }
@@ -1197,8 +1245,10 @@
                             return { key: 'analyze', name: 'Analyze', state: 'done', detail: 'Artifact ' + this.explainArtifact.shortId };
                         }
                         const ready = this.session?.stage === 'READY_TO_IMPLEMENT';
-                        return { key: 'analyze', name: 'Analyze', state: ready ? 'waiting' : 'queued',
-                                 detail: ready ? 'Ready to generate analysis' : 'Runs after clarification' };
+                        return {
+                            key: 'analyze', name: 'Analyze', state: ready ? 'waiting' : 'queued',
+                            detail: ready ? 'Ready to generate analysis' : 'Runs after clarification'
+                        };
                     },
 
                     buildDocumentStep() {
@@ -1209,39 +1259,41 @@
                             return { key: 'document', name: 'Document', state: 'done', detail: 'Artifact ' + this.docArtifact.shortId };
                         }
                         const ready = this.session?.stage === 'READY_TO_IMPLEMENT';
-                        return { key: 'document', name: 'Document', state: ready ? 'waiting' : 'queued',
-                                 detail: ready ? 'Ready to generate docs' : 'Runs after clarification' };
+                        return {
+                            key: 'document', name: 'Document', state: ready ? 'waiting' : 'queued',
+                            detail: ready ? 'Ready to generate docs' : 'Runs after clarification'
+                        };
                     },
 
                     stepDotClass(state) {
                         switch (state) {
-                            case 'done':     return 'bg-emerald-500';
-                            case 'active':   return 'bg-blue-600';
-                            case 'waiting':  return 'bg-amber-500';
-                            case 'failed':   return 'bg-red-500';
+                            case 'done': return 'bg-emerald-500';
+                            case 'active': return 'bg-blue-600';
+                            case 'waiting': return 'bg-amber-500';
+                            case 'failed': return 'bg-red-500';
                             case 'optional': return 'bg-white border border-dashed border-slate-400';
-                            default:         return 'bg-white border border-slate-300';
+                            default: return 'bg-white border border-slate-300';
                         }
                     },
 
                     stepLabelClass(state) {
                         switch (state) {
-                            case 'done':     return 'text-slate-700';
-                            case 'active':   return 'text-blue-700';
-                            case 'waiting':  return 'text-amber-700';
-                            case 'failed':   return 'text-red-700';
+                            case 'done': return 'text-slate-700';
+                            case 'active': return 'text-blue-700';
+                            case 'waiting': return 'text-amber-700';
+                            case 'failed': return 'text-red-700';
                             case 'optional': return 'text-slate-500';
-                            default:         return 'text-slate-400';
+                            default: return 'text-slate-400';
                         }
                     },
 
                     intentBadgeClass() {
                         switch (this.intent) {
-                            case 'FIX':      return 'bg-amber-100 text-amber-800';
-                            case 'EXPLAIN':  return 'bg-blue-100 text-blue-800';
+                            case 'FIX': return 'bg-amber-100 text-amber-800';
+                            case 'EXPLAIN': return 'bg-blue-100 text-blue-800';
                             case 'DOCUMENT': return 'bg-emerald-100 text-emerald-800';
-                            case 'REVIEW':   return 'bg-slate-100 text-slate-700';
-                            default:         return 'bg-violet-100 text-violet-800';
+                            case 'REVIEW': return 'bg-slate-100 text-slate-700';
+                            default: return 'bg-violet-100 text-violet-800';
                         }
                     },
 
