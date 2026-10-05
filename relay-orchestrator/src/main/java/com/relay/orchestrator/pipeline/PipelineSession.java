@@ -15,6 +15,7 @@ public record PipelineSession(
         List<AnsweredQuestion> qaHistory,
         ClarificationResult lastResult,
         ImplementationResult implementationResult,
+        String compileErrors,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {
 
@@ -23,7 +24,7 @@ public record PipelineSession(
         return new PipelineSession(
                 id, story, PipelineStage.NEW,
                 0, maxTurns,
-                List.of(), null, null,
+                List.of(), null, null, null,
                 now, now);
     }
 
@@ -33,6 +34,7 @@ public record PipelineSession(
                 turnCount, maxTurns,
                 qaHistory, newResult != null ? newResult : lastResult,
                 implementationResult,
+                compileErrors,
                 createdAt, LocalDateTime.now());
     }
 
@@ -41,6 +43,7 @@ public record PipelineSession(
                 id, originalStory, stage,
                 turnCount + 1, maxTurns,
                 qaHistory, lastResult, implementationResult,
+                compileErrors,
                 createdAt, LocalDateTime.now());
     }
 
@@ -50,10 +53,10 @@ public record PipelineSession(
                 id, originalStory, stage,
                 turnCount + 1, maxTurns,
                 newHistory, newResult, implementationResult,
+                compileErrors,
                 createdAt, LocalDateTime.now());
     }
 
-    /** Attach an implementer result and move to the ready stage. */
     public PipelineSession withImplementation(ImplementationResult result) {
         PipelineStage next = result == null || result.isEmpty()
                 ? PipelineStage.IMPLEMENTATION_FAILED
@@ -62,6 +65,17 @@ public record PipelineSession(
                 id, originalStory, next,
                 turnCount, maxTurns,
                 qaHistory, lastResult, result,
+                null,
+                createdAt, LocalDateTime.now());
+    }
+
+    /** Set compile errors and move to COMPILE_FAILED. Clears any prior stage. */
+    public PipelineSession withCompileErrors(String errors) {
+        return new PipelineSession(
+                id, originalStory, PipelineStage.COMPILE_FAILED,
+                turnCount, maxTurns,
+                qaHistory, lastResult, implementationResult,
+                errors,
                 createdAt, LocalDateTime.now());
     }
 

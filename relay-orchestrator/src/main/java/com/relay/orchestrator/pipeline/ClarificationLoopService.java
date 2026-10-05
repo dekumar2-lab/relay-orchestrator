@@ -118,6 +118,7 @@ public class ClarificationLoopService {
                 mergedHistory,
                 session.lastResult(),
                 session.implementationResult(),
+                session.compileErrors(),
                 session.createdAt(),
                 java.time.LocalDateTime.now());
 

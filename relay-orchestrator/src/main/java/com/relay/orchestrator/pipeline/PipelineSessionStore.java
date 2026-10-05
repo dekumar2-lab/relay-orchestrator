@@ -50,6 +50,8 @@ public class PipelineSessionStore extends MigrationSupport {
                 )
                 """);
 
+        addColumnIfMissing(TABLE, "compile_errors", "TEXT");
+
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_orch_sessions_stage ON " + TABLE + "(stage)");
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_orch_sessions_service ON " + TABLE + "(service_id)");
 
@@ -68,17 +70,18 @@ public class PipelineSessionStore extends MigrationSupport {
 
             jdbc.update("""
                     INSERT INTO orch_pipeline_sessions
-                      (id, service_id, original_story, stage, turn_count, max_turns,
-                       qa_history_json, last_result_json, implementation_json,
-                       created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, service_id, original_story, stage, turn_count, max_turns,
+                    qa_history_json, last_result_json, implementation_json, compile_errors,
+                    created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
-                      stage = excluded.stage,
-                      turn_count = excluded.turn_count,
-                      qa_history_json = excluded.qa_history_json,
-                      last_result_json = excluded.last_result_json,
-                      implementation_json = excluded.implementation_json,
-                      updated_at = excluded.updated_at
+                    stage = excluded.stage,
+                    turn_count = excluded.turn_count,
+                    qa_history_json = excluded.qa_history_json,
+                    last_result_json = excluded.last_result_json,
+                    implementation_json = excluded.implementation_json,
+                    compile_errors = excluded.compile_errors,
+                    updated_at = excluded.updated_at
                     """,
                     session.id(),
                     DEFAULT_SERVICE,
@@ -89,6 +92,7 @@ public class PipelineSessionStore extends MigrationSupport {
                     qaJson,
                     resultJson,
                     implJson,
+                    session.compileErrors(),
                     session.createdAt().toString(),
                     session.updatedAt().toString());
         } catch (Exception e) {
@@ -133,6 +137,7 @@ public class PipelineSessionStore extends MigrationSupport {
                         qa,
                         result,
                         impl,
+                        rs.getString("compile_errors"),
                         LocalDateTime.parse(rs.getString("created_at")),
                         LocalDateTime.parse(rs.getString("updated_at")));
             } catch (Exception e) {
