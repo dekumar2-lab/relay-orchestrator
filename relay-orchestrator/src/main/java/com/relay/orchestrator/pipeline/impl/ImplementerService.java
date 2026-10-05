@@ -64,6 +64,11 @@ public class ImplementerService {
     private static final Pattern BACKTICK_PATH = Pattern.compile("`([^`]+)`");
     private static final Pattern JAVA_PATH = Pattern.compile("([a-zA-Z0-9_/\\\\-]+\\.(?:java|ts|py|js|kt|go))");
     private static final Pattern MARKER_PATTERN = Pattern.compile("\\[(?:NEW|MODIFY)\\]\\s*");
+    private static final Pattern METHOD_SIG = Pattern.compile(
+        "(?m)^\\s{0,8}(public|protected|private)\\s+"
+        + "(?:static\\s+)?(?:synchronized\\s+)?(?:final\\s+)?"
+        + "(?:<[^>]+>\\s+)?"
+        + "[\\w<>\\[\\],\\s.]+\\s+(\\w+)\\s*\\(");
 
     private final LlmClientRouter llmRouter;
     private final ConnectionConfigService configService;
@@ -457,10 +462,9 @@ public class ImplementerService {
         // Restricted tool set — no read_file, no search_code. The prior
         // file contents are already in the prompt.
         List<LlmClient.ToolDefinition> fixTools = buildTools().stream()
-                .filter(t -> TOOL_WRITE.equals(t.name())
-                        || TOOL_EDIT.equals(t.name())
-                        || TOOL_SUBMIT.equals(t.name()))
-                .toList();
+        .filter(t -> TOOL_WRITE.equals(t.name())
+                || TOOL_SUBMIT.equals(t.name()))
+        .toList();
 
         List<LlmClient.Message> messages = new ArrayList<>();
         messages.add(LlmClient.Message.user(
@@ -485,26 +489,31 @@ public class ImplementerService {
         sb.append(compilerErrors == null ? "(no output)" : compilerErrors).append("\n");
         sb.append("----------------------------------------\n\n");
 
-        sb.append("FILES YOU WROTE (current staged contents):\n");
+        sb.append("FILES AS THEY EXIST ON DISK (pristine — the compile gate undid your prior attempt):\n");
         if (priorFiles == null || priorFiles.isEmpty()) {
             sb.append("(none)\n\n");
         } else {
             for (ImplementationResult.FileDiff f : priorFiles) {
                 sb.append("=== ").append(f.changeKind()).append(" ")
                         .append(f.path()).append(" ===\n");
-                if (f.afterContent() != null) {
-                    sb.append(f.afterContent()).append("\n");
+                // Show PRISTINE content (what's actually on disk), not the broken attempt.
+                // The compile gate undid the prior apply; disk is the original.
+                String pristine = f.beforeContent();
+                if ("CREATE".equals(f.changeKind()) || pristine == null) {
+                    sb.append("(file does not exist yet — this is a new file)\n");
                 } else {
-                    sb.append("(file was deleted)\n");
+                    sb.append(pristine).append("\n");
                 }
                 sb.append("\n");
             }
         }
 
-        sb.append("Fix every compiler error above. ");
-        sb.append("Use write_file to fully rewrite a file, or edit_file for a ");
-        sb.append("surgical fix. Do not search or read — every file you staged ");
-        sb.append("is shown above. ");
+        sb.append("Fix every compiler error above.\n\n");
+        sb.append("The file contents shown are the PRISTINE versions on disk. ");
+        sb.append("Rewrite each file with write_file, applying the minimal change ");
+        sb.append("required to fix the compiler errors. ");
+        sb.append("Preserve every existing method, field, and import. ");
+        sb.append("Do NOT remove methods just because the compiler didn't mention them.\n\n");
         sb.append("Call ").append(TOOL_SUBMIT).append(" when every error is resolved.");
 
         return sb.toString();
@@ -1019,7 +1028,7 @@ public class ImplementerService {
     }
 
     private String toolWrite(Map<String, Object> args, Path repoRoot, String sessionId)
-            throws IOException {
+        throws IOException {
         String rel = strOr(args, "path", null);
         String content = strOr(args, "content", null);
         if (rel == null || content == null) {
@@ -1031,6 +1040,18 @@ public class ImplementerService {
 
         boolean exists = Files.isRegularFile(target);
         String before = exists ? Files.readString(target, StandardCharsets.UTF_8) : null;
+
+        if (exists && before != null) {
+            List<String> lost = findRemovedMethods(before, content);
+            if (!lost.isEmpty()) {
+                return "ERROR: write_file would remove " + lost.size()
+                        + " existing method(s): " + String.join(", ", lost)
+                        + "\n\nDo NOT remove existing methods. Use edit_file to add "
+                        + "your new method without rewriting the file. If you must use "
+                        + "write_file, include the FULL existing content plus your additions. "
+                        + "Every method above must appear in your new version.";
+            }
+        }
 
         workspace.add(sessionId, new StagedChange(
                 rel,
@@ -1187,6 +1208,22 @@ public class ImplementerService {
                                 "summary", prop("string", "One-sentence summary; note any incomplete files")),
                                 List.of("summary"))));
     }
+
+    private List<String> findRemovedMethods(String before, String after) {
+    Set<String> beforeNames = extractMethodNames(before);
+    Set<String> afterNames = extractMethodNames(after);
+    beforeNames.removeAll(afterNames);
+    return new ArrayList<>(beforeNames);
+}
+
+private Set<String> extractMethodNames(String source) {
+    Set<String> names = new HashSet<>();
+    Matcher m = METHOD_SIG.matcher(source);
+    while (m.find()) {
+        names.add(m.group(2));
+    }
+    return names;
+}
 
     private Map<String, Object> schema(Map<String, Object> props, List<String> required) {
         Map<String, Object> s = new LinkedHashMap<>();

@@ -81,6 +81,10 @@ Follow these rules for every Java change. They override your defaults.
 - When inserting new code with `edit_file`, do not include surrounding annotations in `old_string`.
 - If the plan is ambiguous, make the smallest reasonable change and note the assumption in the `submit_plan` summary.
 - Prefer completing the task in the fewest turns.
+- When modifying an existing file, preserve every method, field, and
+  import unless the story explicitly asks for its removal. If you use
+  write_file on an existing file, the new content must include everything
+  that was already there, plus your additions.
 
 ## Loop Discipline
 

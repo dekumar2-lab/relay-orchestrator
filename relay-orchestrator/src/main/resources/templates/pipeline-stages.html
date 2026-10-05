@@ -733,10 +733,14 @@
                                     The diff has been written to disk in the indexed repository.
                                     Open the project in your IDE and build to see it.
                                 </p>
-                                <div
-                                    class="rounded-md bg-slate-50 border border-slate-200 px-3 py-2 font-mono text-[11px] text-slate-700">
-                                    MODIFIED: src/main/java/com/relay/guardrail/TokenBudgetGuard.java
-                                </div>
+                                <template x-if="session && session.changedFiles && session.changedFiles.length > 0">
+                                    <div class="space-y-1">
+                                        <template x-for="path in session.changedFiles" :key="path">
+                                            <div class="rounded-md bg-slate-50 border border-slate-200 px-3 py-2 font-mono text-[11px] text-slate-700"
+                                                x-text="path"></div>
+                                        </template>
+                                    </div>
+                                </template>
                             </div>
                         </template>
 
@@ -1700,7 +1704,8 @@
                                 const res = await fetch('/pipeline/session/' + id);
                                 const data = await res.json();
                                 if (data.stage === 'IMPLEMENTATION_READY'
-                                    || data.stage === 'IMPLEMENTATION_FAILED') {
+                                    || data.stage === 'IMPLEMENTATION_FAILED'
+                                    || data.stage === 'COMPILE_FAILED') {
                                     clearInterval(timer);
                                     this.implementing = false;
                                     this.reimplementing = false;
