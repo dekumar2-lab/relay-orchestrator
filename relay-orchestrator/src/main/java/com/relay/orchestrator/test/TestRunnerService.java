@@ -244,4 +244,90 @@ public class TestRunnerService {
     private record CommandResult(int exitCode, String stdout, String stderr,
             long durationMs, boolean timedOut) {
     }
+
+    // ------------------------------------------------------------------
+    // Compile-only — used by the compile gate, not by the manual test runner.
+    // No "clean" prefix. Incremental compile.
+    // ------------------------------------------------------------------
+
+    public CompileResult compileOnly(Path repoRoot) {
+        if (repoRoot == null || !Files.isDirectory(repoRoot)) {
+            return CompileResult.skipped("Repo root not found: " + repoRoot);
+        }
+
+        BuildDetection detection = buildSystemDetector.detect(repoRoot);
+        if (!detection.isDetected()) {
+            return CompileResult.skipped("No build system detected");
+        }
+        if (!detection.hasCompileStep()) {
+            return CompileResult.skipped("Build system has no compile step");
+        }
+
+        List<String> args = detection.getCompileArgs();
+        logBroadcaster.publish(LogEvent.info(
+                "[COMPILE] Running: " + detection.getExecutable() + " " + args));
+        logBroadcaster.publish(LogEvent.info(
+                "[COMPILE] Working dir: " + repoRoot));
+
+        CommandResult cr;
+        try {
+            cr = runCommand(detection.getExecutable(), args, repoRoot, TIMEOUT_SECONDS);
+        } catch (Exception e) {
+            log.error("Compile command failed to launch", e);
+            logBroadcaster.publish(LogEvent.error("[COMPILE] " + e.getMessage()));
+            return CompileResult.failed(-1, "", e.getMessage());
+        }
+
+        boolean passed = !cr.timedOut() && cr.exitCode() == 0;
+        if (passed) {
+            logBroadcaster.publish(LogEvent.success(
+                    "[COMPILE] Passed in " + cr.durationMs() + "ms"));
+        } else if (cr.timedOut()) {
+            logBroadcaster.publish(LogEvent.error(
+                    "[COMPILE] Timed out after " + TIMEOUT_SECONDS + "s"));
+        } else {
+            logBroadcaster.publish(LogEvent.warn(
+                    "[COMPILE] Failed (exit=" + cr.exitCode() + ")"));
+        }
+
+        return new CompileResult(
+                false,
+                passed,
+                cr.exitCode(),
+                cr.durationMs(),
+                tail(cr.stdout(), STDOUT_TAIL),
+                tail(cr.stderr(), STDERR_TAIL),
+                cr.timedOut());
+    }
+
+    public record CompileResult(
+            boolean skipped,
+            boolean passed,
+            int exitCode,
+            long durationMs,
+            String stdoutTail,
+            String stderrTail,
+            boolean timedOut) {
+
+        public static CompileResult skipped(String reason) {
+            return new CompileResult(true, true, 0, 0, "", reason, false);
+        }
+
+        public static CompileResult failed(int exitCode, String stdout, String stderr) {
+            return new CompileResult(false, false, exitCode, 0, stdout, stderr, false);
+        }
+
+        public String combinedOutput() {
+            StringBuilder sb = new StringBuilder();
+            if (stdoutTail != null && !stdoutTail.isBlank()) {
+                sb.append(stdoutTail);
+            }
+            if (stderrTail != null && !stderrTail.isBlank()) {
+                if (sb.length() > 0)
+                    sb.append("\n");
+                sb.append(stderrTail);
+            }
+            return sb.toString();
+        }
+    }
 }
