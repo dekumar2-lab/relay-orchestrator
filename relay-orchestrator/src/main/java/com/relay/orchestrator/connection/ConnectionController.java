@@ -436,14 +436,17 @@ public class ConnectionController {
                     session.lastResult().effectiveIntentConfidence().name());
         }
 
-        if (session.implementationResult() != null
-                && session.implementationResult().files() != null) {
-            view.put("changedFiles",
-                    session.implementationResult().files().stream()
-                            .map(ImplementationResult.FileDiff::path)
-                            .toList());
+        if (session.implementationResult() != null) {
+            view.put("implementationResult", session.implementationResult());
+            if (session.implementationResult().files() != null) {
+                view.put("changedFiles",
+                        session.implementationResult().files().stream()
+                                .map(ImplementationResult.FileDiff::path)
+                                .toList());
+            }
         }
 
+        view.put("compileErrors", session.compileErrors());
         view.put("qaHistory", session.qaHistory());
         return view;
     }
