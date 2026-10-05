@@ -416,6 +416,101 @@ public class ImplementerService {
     }
 
     // ==================================================================
+    // COMPILE-FIX OVERLOAD (retry after the compile gate fails)
+    // ==================================================================
+
+    /**
+     * Retry pass. Called by ImplementerVerificationService when the first
+     * compile attempt fails. Jim receives his own prior staged files and the
+     * compiler output, with read/search disabled — the fix is expected to be
+     * local and mechanical.
+     */
+    public ImplementationResult implementFix(PipelineSession session,
+            String compilerErrors,
+            List<ImplementationResult.FileDiff> priorFiles) {
+
+        if (session.lastResult() == null) {
+            return failedResult("No clarifier result attached to session", 0);
+        }
+
+        RepositoryConfig repo = pickWorkingRepo();
+        if (repo == null) {
+            return failedResult("No indexed repository available", 0);
+        }
+        Path repoRoot = Paths.get(repo.getPath()).toAbsolutePath().normalize();
+
+        int prior = priorFiles != null ? priorFiles.size() : 0;
+        int errLen = compilerErrors != null ? compilerErrors.length() : 0;
+        logBroadcaster.publish(LogEvent.info(
+                "[IMPLEMENTER] Fix pass — " + prior + " file(s), "
+                        + errLen + " chars of compiler output"));
+
+        workspace.reset(session.id());
+
+        ConnectionConfig config = configService.load()
+                .orElseThrow(() -> new IllegalStateException("No configuration loaded"));
+        AgentPersona persona = agentRegistry.getForRole(AgentRole.IMPLEMENTER);
+
+        String systemPrompt = persona.toSystemPrompt()
+                + "\n\nREPO ROOT (relative paths only): " + repoRoot;
+
+        // Restricted tool set — no read_file, no search_code. The prior
+        // file contents are already in the prompt.
+        List<LlmClient.ToolDefinition> fixTools = buildTools().stream()
+                .filter(t -> TOOL_WRITE.equals(t.name())
+                        || TOOL_EDIT.equals(t.name())
+                        || TOOL_SUBMIT.equals(t.name()))
+                .toList();
+
+        List<LlmClient.Message> messages = new ArrayList<>();
+        messages.add(LlmClient.Message.user(
+                composeFixMessage(session, compilerErrors, priorFiles)));
+
+        logBroadcaster.publish(LogEvent.info(
+                "[" + persona.displayName() + "] Fixing compile errors"));
+
+        return runImplementerLoop(session, config, persona, systemPrompt,
+                fixTools, messages, 4, "IMPLEMENTER_FIX", "", List.of());
+    }
+
+    private String composeFixMessage(PipelineSession session,
+            String compilerErrors,
+            List<ImplementationResult.FileDiff> priorFiles) {
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("STORY:\n").append(session.originalStory()).append("\n\n");
+
+        sb.append("COMPILER ERRORS:\n");
+        sb.append("----------------------------------------\n");
+        sb.append(compilerErrors == null ? "(no output)" : compilerErrors).append("\n");
+        sb.append("----------------------------------------\n\n");
+
+        sb.append("FILES YOU WROTE (current staged contents):\n");
+        if (priorFiles == null || priorFiles.isEmpty()) {
+            sb.append("(none)\n\n");
+        } else {
+            for (ImplementationResult.FileDiff f : priorFiles) {
+                sb.append("=== ").append(f.changeKind()).append(" ")
+                        .append(f.path()).append(" ===\n");
+                if (f.afterContent() != null) {
+                    sb.append(f.afterContent()).append("\n");
+                } else {
+                    sb.append("(file was deleted)\n");
+                }
+                sb.append("\n");
+            }
+        }
+
+        sb.append("Fix every compiler error above. ");
+        sb.append("Use write_file to fully rewrite a file, or edit_file for a ");
+        sb.append("surgical fix. Do not search or read — every file you staged ");
+        sb.append("is shown above. ");
+        sb.append("Call ").append(TOOL_SUBMIT).append(" when every error is resolved.");
+
+        return sb.toString();
+    }
+
+    // ==================================================================
     // SHARED IMPLEMENTER LOOP
     // ==================================================================
 
