@@ -21,6 +21,7 @@ import com.relay.orchestrator.pipeline.impl.ImplementationResult;
 import com.relay.orchestrator.pipeline.impl.ApplyResult;
 import com.relay.orchestrator.pipeline.impl.ApplyService;
 import com.relay.orchestrator.pipeline.impl.ImplementerService;
+import com.relay.orchestrator.pipeline.impl.ImplementerVerificationService;
 import com.relay.orchestrator.pipeline.impl.WorkspaceSessionStore;
 import com.relay.orchestrator.retrieval.ChunkRepository;
 import com.relay.orchestrator.retrieval.RetrievalService;
@@ -72,6 +73,7 @@ public class ConnectionController {
     private final com.relay.orchestrator.test.TestRunnerService testRunnerService;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
     private final WorkspaceSessionStore workspaceSessionStore;
+    private final ImplementerVerificationService verificationService;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "connection-test");
@@ -98,7 +100,8 @@ public class ConnectionController {
             AppConfigManager appConfigManager,
             TestRunnerService testRunnerService,
             ObjectMapper objectMapper,
-            WorkspaceSessionStore workspaceSessionStore) {
+            WorkspaceSessionStore workspaceSessionStore,
+            ImplementerVerificationService verificationService) {
         this.configService = configService;
         this.connectionStatusService = connectionStatusService;
         this.copilotConnectionChecker = copilotConnectionChecker;
@@ -119,6 +122,7 @@ public class ConnectionController {
         this.objectMapper = new ObjectMapper();
         this.testRunnerService = testRunnerService;
         this.workspaceSessionStore = workspaceSessionStore;
+        this.verificationService = verificationService;
     }
 
     @ModelAttribute("config")
@@ -481,19 +485,38 @@ public class ConnectionController {
 
         executor.submit(() -> {
             try {
-                ImplementationResult result = implementerService.implement(running);
-                PipelineSession updated;
-                if (result.files().isEmpty()) {
-                    updated = running.with(PipelineStage.APPLIED, running.lastResult());
+                ImplementationResult raw = implementerService.implement(running);
+
+                if (raw.files().isEmpty()) {
+                    PipelineSession updated = running.with(
+                            PipelineStage.APPLIED, running.lastResult());
+                    loopService.save(updated);
                     logBroadcaster.publish(LogEvent.info(
                             "[FIX] No changes needed — the bug appears to be fixed already"));
-                } else {
-                    updated = running.withImplementation(result);
-                    logBroadcaster.publish(LogEvent.success(
-                            "[FIX] " + result.files().size() + " file(s), +"
-                                    + result.totalAdditions() + "/-" + result.totalDeletions()));
+                    return;
                 }
+
+                ImplementerVerificationService.VerificationOutcome outcome = verificationService.verify(running, raw);
+
+                if (outcome.status() == ImplementerVerificationService.VerificationOutcome.Status.FAILED
+                        || outcome.status() == ImplementerVerificationService.VerificationOutcome.Status.ERROR) {
+                    String errors = outcome.compileErrors() != null
+                            ? outcome.compileErrors()
+                            : outcome.message();
+                    PipelineSession updated = running.withCompileErrors(errors);
+                    loopService.save(updated);
+                    logBroadcaster.publish(LogEvent.error(
+                            "[FIX] Compile gate failed: " + outcome.message()));
+                    return;
+                }
+
+                ImplementationResult finalResult = outcome.result() != null ? outcome.result() : raw;
+                PipelineSession updated = running.withImplementation(finalResult);
                 loopService.save(updated);
+                logBroadcaster.publish(LogEvent.success(
+                        "[FIX] " + finalResult.files().size() + " file(s), +"
+                                + finalResult.totalAdditions() + "/-"
+                                + finalResult.totalDeletions()));
             } catch (Exception e) {
                 logBroadcaster.publish(LogEvent.error(
                         "[FIX] Failed: " + e.getMessage()));
@@ -894,16 +917,29 @@ public class ConnectionController {
 
             executor.submit(() -> {
                 try {
-                    ImplementationResult result = implementerService.implement(
+                    ImplementationResult raw = implementerService.implement(
                             runningRef, "", feedback);
-                    PipelineSession updated = runningRef.withImplementation(result);
+
+                    ImplementerVerificationService.VerificationOutcome outcome = verificationService.verify(runningRef,
+                            raw);
+
+                    if (outcome.status() == ImplementerVerificationService.VerificationOutcome.Status.FAILED) {
+                        PipelineSession failed = runningRef.withCompileErrors(outcome.compileErrors());
+                        loopService.save(failed);
+                        logBroadcaster.publish(LogEvent.error(
+                                "[REIMPL] Compile failed after retry — see COMPILE_FAILED"));
+                        return;
+                    }
+
+                    ImplementationResult finalResult = outcome.result() != null ? outcome.result() : raw;
+                    PipelineSession updated = runningRef.withImplementation(finalResult);
                     loopService.save(updated);
                     logBroadcaster.publish(LogEvent.success(
-                            "[FIX] Re-implemented with review feedback: "
-                                    + result.files().size() + " file(s)"));
+                            "[REIMPL] Re-implemented: " + finalResult.files().size()
+                                    + " file(s)"));
                 } catch (Exception e) {
                     logBroadcaster.publish(LogEvent.error(
-                            "[FIX] Re-implementation failed: " + e.getMessage()));
+                            "[REIMPL] Failed: " + e.getMessage()));
                 }
             });
 

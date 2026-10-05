@@ -1,5 +1,8 @@
 package com.relay.orchestrator.pipeline.impl;
 
+import com.relay.orchestrator.config.AppConfigManager;
+import com.relay.orchestrator.config.RepoStatus;
+import com.relay.orchestrator.config.RepositoryConfig;
 import com.relay.orchestrator.logging.LogBroadcaster;
 import com.relay.orchestrator.logging.LogEvent;
 import com.relay.orchestrator.pipeline.PipelineSession;
@@ -9,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * Compile gate for the implementer pipeline.
@@ -34,23 +38,32 @@ public class ImplementerVerificationService {
     private final TestRunnerService testRunnerService;
     private final ImplementerService implementerService;
     private final LogBroadcaster logBroadcaster;
+    private final AppConfigManager appConfigManager;
 
     public ImplementerVerificationService(ApplyService applyService,
             TestRunnerService testRunnerService,
             ImplementerService implementerService,
-            LogBroadcaster logBroadcaster) {
+            LogBroadcaster logBroadcaster,
+            AppConfigManager appConfigManager) {
         this.applyService = applyService;
         this.testRunnerService = testRunnerService;
         this.implementerService = implementerService;
         this.logBroadcaster = logBroadcaster;
+        this.appConfigManager = appConfigManager;
     }
 
     public VerificationOutcome verify(PipelineSession session,
-            ImplementationResult result,
-            Path repoRoot) {
+            ImplementationResult result) {
 
         if (result == null || result.isEmpty()) {
             return VerificationOutcome.skipped(result, "no files to verify");
+        }
+
+        Path repoRoot = resolveRepoRoot();
+        if (repoRoot == null) {
+            logBroadcaster.publish(LogEvent.warn(
+                    "[COMPILE-GATE] No indexed repo — skipping gate"));
+            return VerificationOutcome.skipped(result, "no indexed repo");
         }
 
         // ---- Attempt 1 ----
@@ -105,6 +118,16 @@ public class ImplementerVerificationService {
                 "Compile failed after retry");
     }
 
+    private Path resolveRepoRoot() {
+        for (RepositoryConfig repo : appConfigManager.getRepositories()) {
+            if (repo.getStatus() == RepoStatus.INDEXED
+                    || repo.getStatus() == RepoStatus.STALE) {
+                return Paths.get(repo.getPath()).toAbsolutePath().normalize();
+            }
+        }
+        return null;
+    }
+
     // ------------------------------------------------------------------
 
     /**
@@ -116,7 +139,7 @@ public class ImplementerVerificationService {
             ImplementationResult result,
             Path repoRoot) {
 
-        ApplyResult ar = applyService.apply(session);
+        ApplyResult ar = applyService.apply(session, result);
         if (!ar.ok()) {
             logBroadcaster.publish(LogEvent.error(
                     "[COMPILE-GATE] Apply failed: " + ar.message()));

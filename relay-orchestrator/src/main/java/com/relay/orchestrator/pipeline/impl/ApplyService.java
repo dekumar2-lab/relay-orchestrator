@@ -48,7 +48,10 @@ public class ApplyService {
     // ----------------------------------------------------------------
 
     public ApplyResult apply(PipelineSession session) {
-        ImplementationResult impl = session.implementationResult();
+        return apply(session, session.implementationResult());
+    }
+
+    public ApplyResult apply(PipelineSession session, ImplementationResult impl) {
         if (impl == null || impl.files() == null || impl.files().isEmpty()) {
             return ApplyResult.fail("No diff to apply");
         }

@@ -6,6 +6,8 @@ import com.relay.orchestrator.pipeline.ClarificationLoopService;
 import com.relay.orchestrator.pipeline.PipelineSession;
 import com.relay.orchestrator.pipeline.impl.ImplementationResult;
 import com.relay.orchestrator.pipeline.impl.ImplementerService;
+import com.relay.orchestrator.pipeline.impl.ImplementerVerificationService;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -26,15 +28,18 @@ public class PlanExecutor implements Executor {
     private final ClarificationLoopService loopService;
     private final ArtifactStore artifactStore;
     private final LogBroadcaster logBroadcaster;
+    private final ImplementerVerificationService verificationService;
 
     public PlanExecutor(ImplementerService implementerService,
             ClarificationLoopService loopService,
             ArtifactStore artifactStore,
-            LogBroadcaster logBroadcaster) {
+            LogBroadcaster logBroadcaster,
+            ImplementerVerificationService verificationService) {
         this.implementerService = implementerService;
         this.loopService = loopService;
         this.artifactStore = artifactStore;
         this.logBroadcaster = logBroadcaster;
+        this.verificationService = verificationService;
     }
 
     @Override
@@ -54,13 +59,31 @@ public class PlanExecutor implements Executor {
         }
 
         try {
-            ImplementationResult result = implementerService.implement(session, artifact.content());
+            ImplementationResult raw = implementerService.implement(session, artifact.content());
 
-            PipelineSession updated = session.withImplementation(result);
+            ImplementerVerificationService.VerificationOutcome outcome = verificationService.verify(session, raw);
+
+            PipelineSession updated;
+            if (outcome.status() == ImplementerVerificationService.VerificationOutcome.Status.FAILED
+                    || outcome.status() == ImplementerVerificationService.VerificationOutcome.Status.ERROR) {
+                String errors = outcome.compileErrors() != null
+                        ? outcome.compileErrors()
+                        : outcome.message();
+                updated = session.withCompileErrors(errors);
+                loopService.save(updated);
+                artifactStore.markExecuted(artifact.id());
+                logBroadcaster.publish(LogEvent.error(
+                        "[EXECUTOR] Plan " + artifact.shortId()
+                                + " executed but compile gate failed: " + outcome.message()));
+                return true;
+            }
+
+            ImplementationResult finalResult = outcome.result() != null
+                    ? outcome.result()
+                    : raw;
+            updated = session.withImplementation(finalResult);
             loopService.save(updated);
             artifactStore.markExecuted(artifact.id());
-
-            // A new diff invalidates any previous review
             artifactStore.delete(session.id(), ArtifactKind.REVIEW);
 
             logBroadcaster.publish(LogEvent.success(
@@ -87,14 +110,32 @@ public class PlanExecutor implements Executor {
             return false;
         }
         try {
-            ImplementationResult result = implementerService.implement(
+            ImplementationResult raw = implementerService.implement(
                     session, plan.content(), reviewFeedback);
 
-            PipelineSession updated = session.withImplementation(result);
+            ImplementerVerificationService.VerificationOutcome outcome = verificationService.verify(session, raw);
+
+            PipelineSession updated;
+            if (outcome.status() == ImplementerVerificationService.VerificationOutcome.Status.FAILED
+                    || outcome.status() == ImplementerVerificationService.VerificationOutcome.Status.ERROR) {
+                String errors = outcome.compileErrors() != null
+                        ? outcome.compileErrors()
+                        : outcome.message();
+                updated = session.withCompileErrors(errors);
+                loopService.save(updated);
+                artifactStore.markExecuted(plan.id());
+                logBroadcaster.publish(LogEvent.error(
+                        "[EXECUTOR] Plan " + plan.shortId()
+                                + " executed but compile gate failed: " + outcome.message()));
+                return true;
+            }
+
+            ImplementationResult finalResult = outcome.result() != null
+                    ? outcome.result()
+                    : raw;
+            updated = session.withImplementation(finalResult);
             loopService.save(updated);
             artifactStore.markExecuted(plan.id());
-
-            // A new diff invalidates any previous review
             artifactStore.delete(session.id(), ArtifactKind.REVIEW);
 
             logBroadcaster.publish(LogEvent.success(
