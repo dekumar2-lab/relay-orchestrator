@@ -176,7 +176,7 @@ public class ConnectionController {
                 compile = "done";
                 test = "active";
             }
-            case BLOCKED, CAPPED, ERROR, IMPLEMENTATION_FAILED -> {
+            case BLOCKED, CAPPED, ERROR, IMPLEMENTATION_FAILED, COMPILE_FAILED -> {
                 analysis = "done";
                 decision = "done";
             }

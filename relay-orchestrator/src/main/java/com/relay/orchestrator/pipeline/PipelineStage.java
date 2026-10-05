@@ -1,9 +1,5 @@
 package com.relay.orchestrator.pipeline;
 
-/**
- * Stages of the pipeline state machine. Each maps to a node in the
- * eventual LangGraph4j graph. Today we dispatch by hand.
- */
 public enum PipelineStage {
 
     /** Initial state on session creation, before the first clarifier call. */
@@ -21,8 +17,11 @@ public enum PipelineStage {
     /** Implementer produced a diff ready for user review. */
     IMPLEMENTATION_READY,
 
-    /** Implementer failed. Terminal. */
+    /** Implementer failed to produce a diff. Terminal. */
     IMPLEMENTATION_FAILED,
+
+    /** Compile gate failed after retry. Terminal. */
+    COMPILE_FAILED,
 
     /** Clarifier produced BLOCKED; terminal state. */
     BLOCKED,
@@ -30,6 +29,7 @@ public enum PipelineStage {
     /** Turn cap reached without reaching a terminal state. */
     CAPPED,
 
+    /** Diff has been written to disk. */
     APPLIED,
 
     /** Unrecoverable error. Terminal. */
@@ -37,7 +37,8 @@ public enum PipelineStage {
 
     public boolean isTerminal() {
         return this == BLOCKED || this == CAPPED || this == ERROR
-                || this == IMPLEMENTATION_FAILED;
+                || this == IMPLEMENTATION_FAILED
+                || this == COMPILE_FAILED;
     }
 
     public boolean isAwaitingUser() {
