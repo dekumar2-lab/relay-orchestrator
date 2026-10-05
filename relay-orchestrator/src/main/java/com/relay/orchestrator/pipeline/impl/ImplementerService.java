@@ -128,7 +128,6 @@ public class ImplementerService {
         AgentPersona persona = agentRegistry.getForRole(AgentRole.IMPLEMENTER);
 
         String systemPrompt = persona.toSystemPrompt()
-                + "\n\n" + IMPLEMENTER_GUIDANCE
                 + "\n\nREPO ROOT (relative paths only): " + repoRoot;
 
         List<LlmClient.ToolDefinition> tools = buildTools();
@@ -197,7 +196,6 @@ public class ImplementerService {
         AgentPersona persona = agentRegistry.getForRole(AgentRole.IMPLEMENTER);
 
         String systemPrompt = persona.toSystemPrompt()
-                + "\n\n" + IMPLEMENTER_GUIDANCE
                 + "\n\nREPO ROOT (relative paths only): " + repoRoot;
 
         List<LlmClient.ToolDefinition> tools = buildTools();
@@ -321,7 +319,6 @@ public class ImplementerService {
         AgentPersona persona = agentRegistry.getForRole(AgentRole.IMPLEMENTER);
 
         String systemPrompt = persona.toSystemPrompt()
-                + "\n\n" + IMPLEMENTER_GUIDANCE
                 + "\n\nREPO ROOT (relative paths only): " + repoRoot;
 
         List<LlmClient.ToolDefinition> tools = buildTools();
@@ -1042,53 +1039,6 @@ public class ImplementerService {
     // ==================================================================
     // Prompt
     // ==================================================================
-
-    private static final String IMPLEMENTER_GUIDANCE = """
-            You are the IMPLEMENTER agent. Your job is to produce the concrete
-            code changes that satisfy the story or approved implementation plan.
-
-            TURN BUDGET:
-            - Turns 1-3: explore. Read the files named in the plan.
-            - Turns 4-8: write. Stage every required change.
-            - Turns 9+: finish. Call submit_plan.
-
-            MULTI-FILE CHANGES ARE THE NORM:
-            - If the plan lists N files, stage changes in all N files.
-            - Do not stop after updating the first file.
-            - Move from file to file: read it, update it, continue to the next.
-            - Do not spend multiple turns repeatedly editing the same file while
-              other required files remain untouched.
-
-            HANDLING [NEW] FILES:
-            - When the plan marks a file as [NEW], it does not exist yet.
-            - Do NOT search_code for it. Search will return nothing.
-            - The ONLY correct action is write_file with the full file content.
-            - If read_file returns "FILE DOES NOT EXIST" on a [NEW] file, the very
-              next tool call in the SAME turn MUST be write_file for that path.
-
-            SEARCH DISCIPLINE:
-            - search_code matches class names, method names, and identifiers.
-              It does NOT match Java expressions like "getX() != null" or method
-              bodies. Never use it to search for code snippets.
-            - If the plan gives you a path, read_file it directly. Do NOT search.
-            - For refactor stories ("extract X into Y"), read the source file the
-              plan names. Do NOT search for callers unless the plan asks for it.
-
-            WORKFLOW:
-            1. Read the plan's REQUIRED FILES list.
-            2. For each required file, attempt read_file exactly once.
-               - If the file exists, make the change with edit_file or write_file.
-               - If it does not exist ([NEW]), proceed directly to write_file.
-            3. Use search_code only to understand existing code and dependencies.
-            4. When every file in the list has been staged, call submit_plan.
-
-            RULES:
-            - Never write outside the repository root. Paths are relative.
-            - Touch every file required by the story, plan, or review feedback.
-            - A read_file error on a file that must be created is NOT a failure.
-            - Do not spend more than one turn searching for a [NEW] file.
-            - If you cannot complete a file, still call submit_plan and explain.
-            """;
 
     private List<LlmClient.ToolDefinition> buildTools() {
         return List.of(
