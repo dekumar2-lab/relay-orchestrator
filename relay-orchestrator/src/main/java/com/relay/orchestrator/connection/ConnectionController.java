@@ -21,6 +21,7 @@ import com.relay.orchestrator.pipeline.impl.ImplementationResult;
 import com.relay.orchestrator.pipeline.impl.ApplyResult;
 import com.relay.orchestrator.pipeline.impl.ApplyService;
 import com.relay.orchestrator.pipeline.impl.ImplementerService;
+import com.relay.orchestrator.pipeline.impl.WorkspaceSessionStore;
 import com.relay.orchestrator.retrieval.ChunkRepository;
 import com.relay.orchestrator.retrieval.RetrievalService;
 import com.relay.orchestrator.retrieval.RetrievedChunk;
@@ -70,6 +71,7 @@ public class ConnectionController {
     private final AppConfigManager appConfigManager;
     private final com.relay.orchestrator.test.TestRunnerService testRunnerService;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    private final WorkspaceSessionStore workspaceSessionStore;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "connection-test");
@@ -95,7 +97,8 @@ public class ConnectionController {
             BuildSystemDetector buildSystemDetector,
             AppConfigManager appConfigManager,
             TestRunnerService testRunnerService,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            WorkspaceSessionStore workspaceSessionStore) {
         this.configService = configService;
         this.connectionStatusService = connectionStatusService;
         this.copilotConnectionChecker = copilotConnectionChecker;
@@ -115,6 +118,7 @@ public class ConnectionController {
         this.appConfigManager = appConfigManager;
         this.objectMapper = new ObjectMapper();
         this.testRunnerService = testRunnerService;
+        this.workspaceSessionStore = workspaceSessionStore;
     }
 
     @ModelAttribute("config")
@@ -428,6 +432,14 @@ public class ConnectionController {
                     session.lastResult().effectiveIntentConfidence().name());
         }
 
+        if (session.implementationResult() != null
+                && session.implementationResult().files() != null) {
+            view.put("changedFiles",
+                    session.implementationResult().files().stream()
+                            .map(ImplementationResult.FileDiff::path)
+                            .toList());
+        }
+
         view.put("qaHistory", session.qaHistory());
         return view;
     }
@@ -464,9 +476,8 @@ public class ConnectionController {
         executor.submit(() -> {
             try {
                 ImplementationResult result = implementerService.implement(running);
-                PipelineSession updated = running.withImplementation(result);
+                PipelineSession updated;
                 if (result.files().isEmpty()) {
-                    // Jim found nothing to change. Don't mark as failed.
                     updated = running.with(PipelineStage.APPLIED, running.lastResult());
                     logBroadcaster.publish(LogEvent.info(
                             "[FIX] No changes needed — the bug appears to be fixed already"));
@@ -477,9 +488,6 @@ public class ConnectionController {
                                     + result.totalAdditions() + "/-" + result.totalDeletions()));
                 }
                 loopService.save(updated);
-                logBroadcaster.publish(LogEvent.success(
-                        "[FIX] " + result.files().size() + " file(s), +"
-                                + result.totalAdditions() + "/-" + result.totalDeletions()));
             } catch (Exception e) {
                 logBroadcaster.publish(LogEvent.error(
                         "[FIX] Failed: " + e.getMessage()));
@@ -1004,9 +1012,6 @@ public class ConnectionController {
         PipelineSession updated = session.with(PipelineStage.IMPLEMENTATION_READY, session.lastResult());
         loopService.save(updated);
 
-        logBroadcaster.publish(LogEvent.warn(
-                "[UNDO] " + result.fileCount() + " file(s) restored from backup"));
-
         // The test result is no longer valid — the disk state it was run against
         // has been rolled back. Delete it so the UI doesn't show a stale PASSED.
         artifactStore.delete(sessionId, ArtifactKind.TEST_RUN);
@@ -1131,5 +1136,45 @@ public class ConnectionController {
         } catch (Exception e) {
             return "Test failures detected but could not be parsed: " + e.getMessage();
         }
+    }
+
+    @PostMapping("/pipeline/{sessionId}/files/remove")
+    @ResponseBody
+    public ResponseEntity<?> removeFile(@PathVariable String sessionId,
+            @RequestParam String path) {
+        PipelineSession session;
+        try {
+            session = loopService.get(sessionId);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(404).body(Map.of("error", "Session not found"));
+        }
+
+        boolean removed = workspaceSessionStore.remove(sessionId, path);
+        if (!removed) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "File not found in staged changes: " + path));
+        }
+
+        // Rebuild the implementationResult from the updated workspace
+        if (session.implementationResult() != null
+                && session.implementationResult().files() != null) {
+            List<ImplementationResult.FileDiff> remaining = session.implementationResult().files().stream()
+                    .filter(f -> !f.path().equals(path))
+                    .toList();
+            ImplementationResult updated = new ImplementationResult(
+                    session.implementationResult().summary(),
+                    remaining,
+                    session.implementationResult().totalAdditions(),
+                    session.implementationResult().totalDeletions(),
+                    session.implementationResult().turnCount(),
+                    session.implementationResult().stopReason(),
+                    session.implementationResult().completedAt());
+            PipelineSession next = session.withImplementation(updated);
+            loopService.save(next);
+        }
+
+        logBroadcaster.publish(LogEvent.warn("[REIMPL] User removed file: " + path));
+
+        return ResponseEntity.ok(Map.of("status", "removed", "path", path));
     }
 }

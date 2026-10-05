@@ -515,6 +515,30 @@ public class IntentClarifierService {
             The word "fix" alone is not enough. "Fix the race condition in
             PipelineOrchestrator" is still PLAN if the fix isn't obvious.
 
+            CREATING NEW FILES IS LEGITIMATE:
+            - A story that asks to create new classes, utilities, or files is NOT
+            blocked just because those files don't exist in the repo yet.
+            - Creating files is a normal operation. Do NOT treat "file not found"
+            search results as evidence that the story is impossible.
+            - Only set BLOCKED if the story is nonsense, off-topic, or asks for
+            something the codebase fundamentally cannot support (e.g. adding a
+            React UI to a headless CLI).
+
+            STATE = BLOCKED is reserved for:
+            - Nonsensical or off-topic stories ("make me a sandwich")
+            - Requests the codebase cannot support in principle
+                ("add a React frontend" to a repo with no frontend)
+            - Contradictory requests that cannot be reconciled
+
+            Do NOT use BLOCKED for:
+            - Stories that reference files which don't exist yet (use READY)
+            - Stories that require design decisions (use READY or NEEDS_INPUT)
+            - Stories where the package path is unfamiliar (use NEEDS_INPUT to
+                ask, if the correct path is genuinely unclear)
+
+            When unsure between BLOCKED and NEEDS_INPUT, choose NEEDS_INPUT.
+            The user can always clarify. BLOCKED terminates the session.
+
             QUESTIONS:
             - Ask at most 3 questions, and only when the answer would change
             what you would recommend.

@@ -14,11 +14,22 @@ public class TokenBudgetGuard {
     private long monthlyInput = 0L;
     private long monthlyOutput = 0L;
 
-    public synchronized void track(long input, long output) {
-        this.runInput += input;
-        this.runOutput += output;
-        this.monthlyInput += input;
-        this.monthlyOutput += output;
+    /**
+     * Tracks the input and output values, ensuring null values are treated as zero.
+     * Updates the run and monthly budgets accordingly.
+     * Throws RuntimeException if any budget limit is exceeded.
+     *
+     * @param input  the input value for the current operation (nullable)
+     * @param output the output value for the current operation (nullable)
+     */
+    public synchronized void track(Long input, Long output) {
+        long safeInput = (input == null) ? 0L : input;
+        long safeOutput = (output == null) ? 0L : output;
+
+        this.runInput += safeInput;
+        this.runOutput += safeOutput;
+        this.monthlyInput += safeInput;
+        this.monthlyOutput += safeOutput;
 
         if (this.runInput > MAX_RUN_INPUT || this.runOutput > MAX_RUN_OUTPUT) {
             throw new RuntimeException("Per-run budget exceeded: input="

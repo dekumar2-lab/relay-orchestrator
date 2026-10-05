@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.InputStream;
+import java.time.Instant;
 import java.util.Map;
 
 @RestController
@@ -24,5 +25,13 @@ public class WorkspaceController {
                     "error", e.getClass().getSimpleName(),
                     "message", e.getMessage() == null ? "null" : e.getMessage()));
         }
+    }
+
+    @GetMapping("/health")
+    public ResponseEntity<Map<String, Object>> health() {
+        return ResponseEntity.ok(Map.of(
+                "status", "ok",
+                "timestamp", Instant.now().toString()
+        ));
     }
 }

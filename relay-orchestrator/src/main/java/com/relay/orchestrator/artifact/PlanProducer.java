@@ -66,7 +66,10 @@ public class PlanProducer extends BaseProducer {
         props.put("summary", stringProp(
                 "One sentence describing what this plan will build."));
         props.put("filesAffected", stringArrayProp(
-                "List of file paths (relative to repo root) that will be modified or created."));
+                "List of file paths (relative to repo root). Prefix each with '[NEW] ' "
+                        + "if the file does not exist yet and must be created, or "
+                        + "'[MODIFY] ' if it already exists. Example: "
+                        + "'[NEW] src/main/java/com/foo/NewHelper.java'"));
         props.put("approach", stringArrayProp(
                 "Ordered steps describing what each file change does. Keep each step to one sentence."));
         props.put("risks", stringArrayProp(
@@ -76,7 +79,8 @@ public class PlanProducer extends BaseProducer {
 
         return new LlmClient.ToolDefinition(
                 TOOL,
-                "Submit the implementation plan. Call this tool exactly once.",
+                "Submit the implementation plan. Mark every file as [NEW] or [MODIFY]. "
+                        + "Call this tool exactly once.",
                 schema(props, List.of("summary", "filesAffected", "approach")));
     }
 

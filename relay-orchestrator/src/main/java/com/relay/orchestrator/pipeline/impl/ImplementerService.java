@@ -32,24 +32,38 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 public class ImplementerService {
 
     private static final Logger log = LoggerFactory.getLogger(ImplementerService.class);
 
-    private static final int MAX_TURNS = 15;
-    private static final int MAX_READ_BYTES = 60_000;
+    private static final int MAX_TURNS = 20;
+    private static final int MAX_TURNS_PLAN = 15;
+    private static final int MAX_TURNS_NO_PLAN = 10;
+    private static final int MAX_POLISH_TURNS = 2;
+    private static final int MAX_READ_BYTES = 150_000;
     private static final int MAX_FILE_EDIT_BYTES = 500_000;
+    private static final int MAX_COVERAGE_RETRY_TURNS = 3;
+    private static final int CONTEXT_PRUNE_KEEP_LAST = 4;
+    private static final int CONTEXT_PRUNE_THRESHOLD = 8_000;
 
     private static final String TOOL_READ = "read_file";
     private static final String TOOL_SEARCH = "search_code";
     private static final String TOOL_WRITE = "write_file";
     private static final String TOOL_EDIT = "edit_file";
     private static final String TOOL_SUBMIT = "submit_plan";
+
+    private static final Pattern BACKTICK_PATH = Pattern.compile("`([^`]+)`");
+    private static final Pattern JAVA_PATH = Pattern.compile("([a-zA-Z0-9_/\\\\-]+\\.(?:java|ts|py|js|kt|go))");
+    private static final Pattern MARKER_PATTERN = Pattern.compile("\\[(?:NEW|MODIFY)\\]\\s*");
 
     private final LlmClientRouter llmRouter;
     private final ConnectionConfigService configService;
@@ -100,15 +114,18 @@ public class ImplementerService {
         logBroadcaster.publish(LogEvent.info(
                 "[IMPLEMENTER] Executing approved plan (" + planMarkdown.length() + " chars)"));
 
+        List<String> plannedFiles = extractPlanFiles(planMarkdown);
+        if (!plannedFiles.isEmpty()) {
+            logBroadcaster.publish(LogEvent.info(
+                    "[IMPLEMENTER] Plan requires " + plannedFiles.size()
+                            + " file(s): " + String.join(", ", plannedFiles)));
+        }
+
         workspace.reset(session.id());
 
         ConnectionConfig config = configService.load()
                 .orElseThrow(() -> new IllegalStateException("No configuration loaded"));
-
         AgentPersona persona = agentRegistry.getForRole(AgentRole.IMPLEMENTER);
-        String model = persona.modelOverride().orElse(config.getModel());
-        int maxTokens = persona.maxTokensOverride().orElse(4000);
-        double temperature = persona.temperatureOverride().orElse(0.0);
 
         String systemPrompt = persona.toSystemPrompt()
                 + "\n\n" + IMPLEMENTER_GUIDANCE
@@ -122,129 +139,8 @@ public class ImplementerService {
                 "[" + persona.displayName() + "] Implementing: \""
                         + abbreviate(session.originalStory(), 100) + "\""));
 
-        int turn = 0;
-        int maxTurns = Math.min(MAX_TURNS, 12);
-        String submittedSummary = null;
-        String stopReason = "TURN_CAP";
-
-        while (turn < maxTurns) {
-            turn++;
-
-            if (turn == 5 && workspace.staged(session.id()).isEmpty()) {
-                logBroadcaster.publish(LogEvent.warn(
-                        "[IMPLEMENTER] No changes staged after 4 turns — prompting to write"));
-                messages.add(LlmClient.Message.user(
-                        "You have used 4 turns without staging a change. STOP reading. "
-                                + "Call edit_file or write_file NOW to stage your best attempt "
-                                + "at the fix. You can refine it in later turns."));
-            }
-
-            List<LlmClient.ToolDefinition> activeTools = tools;
-            if (turn >= 8 && workspace.staged(session.id()).isEmpty()) {
-                logBroadcaster.publish(LogEvent.warn(
-                        "[IMPLEMENTER] Turn " + turn
-                                + " with 0 staged changes — restricting tools to write/submit"));
-                activeTools = tools.stream()
-                        .filter(t -> TOOL_WRITE.equals(t.name()) || TOOL_EDIT.equals(t.name())
-                                || TOOL_SUBMIT.equals(t.name()))
-                        .toList();
-            }
-
-            LlmClient.LlmRequest request = new LlmClient.LlmRequest(
-                    systemPrompt,
-                    List.copyOf(messages),
-                    model,
-                    maxTokens,
-                    temperature,
-                    activeTools,
-                    LlmClient.ToolChoice.auto());
-
-            LlmClient.LlmResponse response;
-            try {
-                response = llmRouter.complete(config, request);
-            } catch (Exception e) {
-                log.error("Implementer LLM call failed", e);
-                logBroadcaster.publish(LogEvent.error(
-                        "[IMPLEMENTER] LLM call failed: " + e.getMessage()));
-                return failedResult("LLM call failed: " + e.getMessage(), turn);
-            }
-
-            tokenTracker.logUsage(
-                    "IMPLEMENTER_TURN",
-                    response.modelUsed(),
-                    response.inputTokens(),
-                    response.outputTokens());
-
-            tokenMetrics.record(
-                    session.id(),
-                    AgentRole.IMPLEMENTER,
-                    persona.name(),
-                    response.modelUsed(),
-                    0,
-                    response.totalInputTokens(),
-                    0,
-                    response.outputTokens(),
-                    response.cacheReadTokens(),
-                    response.cacheWriteTokens());
-
-            if (!response.hasToolCalls()) {
-                logBroadcaster.publish(LogEvent.warn(
-                        "[IMPLEMENTER] Turn " + turn
-                                + " produced no tool calls; nudging agent."));
-                messages.add(LlmClient.Message.assistant(
-                        response.text() == null ? "" : response.text()));
-                messages.add(LlmClient.Message.user(
-                        "Please continue using the tools. When the change is "
-                                + "complete, call " + TOOL_SUBMIT + "."));
-                continue;
-            }
-
-            messages.add(LlmClient.Message.assistantWithToolCalls(response.toolCalls()));
-
-            boolean submitThisTurn = false;
-            for (LlmClient.ToolCall call : response.toolCalls()) {
-                String resultText;
-                try {
-                    resultText = dispatchTool(call, repoRoot, session.id());
-                } catch (Exception e) {
-                    log.warn("Tool {} failed: {}", call.name(), e.getMessage());
-                    resultText = "ERROR: " + e.getMessage();
-                }
-
-                if (TOOL_SUBMIT.equals(call.name())) {
-                    Object s = call.arguments().get("summary");
-                    submittedSummary = s == null ? "Change submitted" : String.valueOf(s);
-                    submitThisTurn = true;
-                }
-
-                messages.add(LlmClient.Message.toolResult(call.id(), resultText));
-            }
-
-            List<String> calledTools = response.toolCalls().stream()
-                    .map(LlmClient.ToolCall::name)
-                    .toList();
-            logBroadcaster.publish(LogEvent.info(
-                    "[IMPLEMENTER] Turn " + turn + " — " + calledTools
-                            + ", " + workspace.staged(session.id()).size() + " staged change(s)"));
-
-            if (submitThisTurn) {
-                stopReason = "SUBMITTED";
-                break;
-            }
-        }
-
-        ImplementationResult result = buildResult(
-                session.id(),
-                submittedSummary == null ? "Implementer finished" : submittedSummary,
-                turn,
-                stopReason);
-
-        logBroadcaster.publish(LogEvent.success(
-                "[IMPLEMENTER] " + result.files().size() + " file(s), +"
-                        + result.totalAdditions() + "/-" + result.totalDeletions()
-                        + " in " + turn + " turn(s)"));
-
-        return result;
+        return runImplementerLoop(session, config, persona, systemPrompt, tools, messages,
+                MAX_TURNS_PLAN, "IMPLEMENTER_TURN", planMarkdown, List.of());
     }
 
     private String composeUserMessageWithPlan(PipelineSession session, String planMarkdown) {
@@ -267,6 +163,8 @@ public class ImplementerService {
         sb.append("----------------------------------------\n");
         sb.append(planMarkdown).append("\n");
         sb.append("----------------------------------------\n\n");
+
+        sb.append(planFileChecklist(planMarkdown));
 
         sb.append("The plan above is your directive. Execute it faithfully. ");
         sb.append("Follow the \"Files to Change\" section. ");
@@ -296,11 +194,7 @@ public class ImplementerService {
 
         ConnectionConfig config = configService.load()
                 .orElseThrow(() -> new IllegalStateException("No configuration loaded"));
-
         AgentPersona persona = agentRegistry.getForRole(AgentRole.IMPLEMENTER);
-        String model = persona.modelOverride().orElse(config.getModel());
-        int maxTokens = persona.maxTokensOverride().orElse(4000);
-        double temperature = persona.temperatureOverride().orElse(0.0);
 
         String systemPrompt = persona.toSystemPrompt()
                 + "\n\n" + IMPLEMENTER_GUIDANCE
@@ -314,133 +208,46 @@ public class ImplementerService {
                 "[" + persona.displayName() + "] Implementing: \""
                         + abbreviate(session.originalStory(), 100) + "\""));
 
-        int turn = 0;
-        int maxTurns = Math.min(MAX_TURNS, 12);
-        String submittedSummary = null;
-        String stopReason = "TURN_CAP";
+        return runImplementerLoop(session, config, persona, systemPrompt, tools, messages,
+                MAX_TURNS_NO_PLAN, "IMPLEMENTER_TURN", "", List.of());
+    }
 
-        while (turn < maxTurns) {
-            turn++;
+    private String composeUserMessage(PipelineSession session) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("STORY:\n").append(session.originalStory()).append("\n\n");
 
-            if (turn == 5 && workspace.staged(session.id()).isEmpty()) {
-                logBroadcaster.publish(LogEvent.warn(
-                        "[IMPLEMENTER] No changes staged after 4 turns — prompting to write"));
-                messages.add(LlmClient.Message.user(
-                        "You have used 4 turns without staging a change. STOP reading. "
-                                + "Call edit_file or write_file NOW to stage your best attempt "
-                                + "at the fix. You can refine it in later turns."));
-            }
-
-            List<LlmClient.ToolDefinition> activeTools = tools;
-            if (turn >= 8 && workspace.staged(session.id()).isEmpty()) {
-                logBroadcaster.publish(LogEvent.warn(
-                        "[IMPLEMENTER] Turn " + turn
-                                + " with 0 staged changes — restricting tools to write/submit"));
-                activeTools = tools.stream()
-                        .filter(t -> TOOL_WRITE.equals(t.name()) || TOOL_EDIT.equals(t.name())
-                                || TOOL_SUBMIT.equals(t.name()))
-                        .toList();
-            }
-
-            LlmClient.LlmRequest request = new LlmClient.LlmRequest(
-                    systemPrompt,
-                    List.copyOf(messages),
-                    model,
-                    maxTokens,
-                    temperature,
-                    activeTools,
-                    LlmClient.ToolChoice.auto());
-
-            LlmClient.LlmResponse response;
-            try {
-                response = llmRouter.complete(config, request);
-            } catch (Exception e) {
-                log.error("Implementer LLM call failed", e);
-                logBroadcaster.publish(LogEvent.error(
-                        "[IMPLEMENTER] LLM call failed: " + e.getMessage()));
-                return failedResult("LLM call failed: " + e.getMessage(), turn);
-            }
-
-            tokenTracker.logUsage(
-                    "IMPLEMENTER_TURN",
-                    response.modelUsed(),
-                    response.inputTokens(),
-                    response.outputTokens());
-
-            tokenMetrics.record(
-                    session.id(),
-                    AgentRole.IMPLEMENTER,
-                    persona.name(),
-                    response.modelUsed(),
-                    0,
-                    response.totalInputTokens(),
-                    0,
-                    response.outputTokens(),
-                    response.cacheReadTokens(),
-                    response.cacheWriteTokens());
-
-            if (!response.hasToolCalls()) {
-                logBroadcaster.publish(LogEvent.warn(
-                        "[IMPLEMENTER] Turn " + turn
-                                + " produced no tool calls; nudging agent."));
-                messages.add(LlmClient.Message.assistant(
-                        response.text() == null ? "" : response.text()));
-                messages.add(LlmClient.Message.user(
-                        "Please continue using the tools. When the change is "
-                                + "complete, call " + TOOL_SUBMIT + "."));
-                continue;
-            }
-
-            messages.add(LlmClient.Message.assistantWithToolCalls(response.toolCalls()));
-
-            boolean submitThisTurn = false;
-            for (LlmClient.ToolCall call : response.toolCalls()) {
-                String resultText;
-                try {
-                    resultText = dispatchTool(call, repoRoot, session.id());
-                } catch (Exception e) {
-                    log.warn("Tool {} failed: {}", call.name(), e.getMessage());
-                    resultText = "ERROR: " + e.getMessage();
+        if (!session.qaHistory().isEmpty()) {
+            sb.append("USER ANSWERS:\n");
+            int i = 1;
+            for (AnsweredQuestion a : session.qaHistory()) {
+                if (a.question() != null && !a.question().isBlank()) {
+                    sb.append("Q").append(i).append(": ").append(a.question()).append("\n");
                 }
-
-                if (TOOL_SUBMIT.equals(call.name())) {
-                    Object s = call.arguments().get("summary");
-                    submittedSummary = s == null ? "Change submitted" : String.valueOf(s);
-                    submitThisTurn = true;
-                }
-
-                messages.add(LlmClient.Message.toolResult(call.id(), resultText));
-            }
-
-            List<String> calledTools = response.toolCalls().stream()
-                    .map(LlmClient.ToolCall::name)
-                    .toList();
-            logBroadcaster.publish(LogEvent.info(
-                    "[IMPLEMENTER] Turn " + turn + " — " + calledTools
-                            + ", " + workspace.staged(session.id()).size() + " staged change(s)"));
-
-            if (submitThisTurn) {
-                stopReason = "SUBMITTED";
-                break;
+                sb.append("A").append(i).append(": ").append(a.answer()).append("\n\n");
+                i++;
             }
         }
 
-        ImplementationResult result = buildResult(
-                session.id(),
-                submittedSummary == null ? "Implementer finished" : submittedSummary,
-                turn,
-                stopReason);
+        if (session.lastResult() != null) {
+            sb.append("CLARIFIER SUMMARY:\n")
+                    .append(session.lastResult().summary()).append("\n\n");
+            if (session.lastResult().assumptionsMade() != null
+                    && !session.lastResult().assumptionsMade().isEmpty()) {
+                sb.append("ASSUMPTIONS:\n");
+                for (String a : session.lastResult().assumptionsMade()) {
+                    sb.append("- ").append(a).append("\n");
+                }
+                sb.append("\n");
+            }
+        }
 
-        logBroadcaster.publish(LogEvent.success(
-                "[IMPLEMENTER] " + result.files().size() + " file(s), +"
-                        + result.totalAdditions() + "/-" + result.totalDeletions()
-                        + " in " + turn + " turn(s)"));
-
-        return result;
+        sb.append("Now propose the implementation. Read the relevant file(s), then ");
+        sb.append("stage the changes. Call ").append(TOOL_SUBMIT).append(" when done.");
+        return sb.toString();
     }
 
     // ==================================================================
-    // RE-IMPLEMENT OVERLOAD (plan + review feedback)
+    // RE-IMPLEMENT OVERLOAD (partial — carries forward untouched files)
     // ==================================================================
 
     public ImplementationResult implement(PipelineSession session,
@@ -458,21 +265,60 @@ public class ImplementerService {
         Path repoRoot = Paths.get(repo.getPath()).toAbsolutePath().normalize();
         logBroadcaster.publish(LogEvent.info(
                 "[IMPLEMENTER] Working repo: " + repo.getId() + " at " + repoRoot));
+
         ImplementationResult prev = session.implementationResult();
         int prevFiles = (prev != null && prev.files() != null) ? prev.files().size() : 0;
         logBroadcaster.publish(LogEvent.info(
                 "[IMPLEMENTER] Re-implementing with review feedback ("
                         + reviewFeedback.length() + " chars, " + prevFiles
                         + " file(s) in previous diff)"));
+
+        List<String> plannedFiles = extractPlanFiles(planMarkdown);
+        if (!plannedFiles.isEmpty()) {
+            logBroadcaster.publish(LogEvent.info(
+                    "[IMPLEMENTER] Plan requires " + plannedFiles.size()
+                            + " file(s): " + String.join(", ", plannedFiles)));
+        }
+
         workspace.reset(session.id());
+
+        // ---- Carry forward every previous file. Jim's writes will overwrite ----
+        List<StagedChange> carried = new ArrayList<>();
+        List<String> carriedPaths = new ArrayList<>();
+        Set<String> filesUnderReview = extractFilesFromReview(reviewFeedback,
+                prev != null ? prev.files() : List.of());
+
+        if (prev != null && prev.files() != null) {
+            for (ImplementationResult.FileDiff f : prev.files()) {
+                StagedChange.Kind kind = "CREATE".equals(f.changeKind())
+                        ? StagedChange.Kind.CREATE
+                        : "DELETE".equals(f.changeKind())
+                                ? StagedChange.Kind.DELETE
+                                : StagedChange.Kind.MODIFY;
+                carried.add(new StagedChange(f.path(), kind, f.beforeContent(), f.afterContent()));
+                carriedPaths.add(f.path());
+            }
+        }
+
+        for (StagedChange c : carried) {
+            workspace.add(session.id(), c);
+        }
+
+        List<String> underReviewPaths = new ArrayList<>();
+        for (String p : carriedPaths) {
+            if (matchesAny(p, filesUnderReview)) {
+                underReviewPaths.add(p);
+            }
+        }
+
+        logBroadcaster.publish(LogEvent.info(
+                "[REIMPL] Already complete (preserved): " + carriedPaths.size() + " file(s)"));
+        logBroadcaster.publish(LogEvent.info(
+                "[REIMPL] Under revision: " + underReviewPaths));
 
         ConnectionConfig config = configService.load()
                 .orElseThrow(() -> new IllegalStateException("No configuration loaded"));
-
         AgentPersona persona = agentRegistry.getForRole(AgentRole.IMPLEMENTER);
-        String model = persona.modelOverride().orElse(config.getModel());
-        int maxTokens = persona.maxTokensOverride().orElse(4000);
-        double temperature = persona.temperatureOverride().orElse(0.0);
 
         String systemPrompt = persona.toSystemPrompt()
                 + "\n\n" + IMPLEMENTER_GUIDANCE
@@ -481,48 +327,163 @@ public class ImplementerService {
         List<LlmClient.ToolDefinition> tools = buildTools();
         List<LlmClient.Message> messages = new ArrayList<>();
         messages.add(LlmClient.Message.user(
-                composeReimplementMessage(session, planMarkdown, reviewFeedback)));
+                composeReimplementMessage(session, planMarkdown, reviewFeedback,
+                        filesUnderReview, carriedPaths)));
 
         logBroadcaster.publish(LogEvent.info(
                 "[" + persona.displayName() + "] Re-implementing: \""
                         + abbreviate(session.originalStory(), 100) + "\""));
 
+        return runImplementerLoop(session, config, persona, systemPrompt, tools, messages,
+                MAX_TURNS_PLAN, "IMPLEMENTER_REIMPL", planMarkdown, carried);
+    }
+
+    private String composeReimplementMessage(PipelineSession session,
+            String planMarkdown,
+            String reviewFeedback,
+            Set<String> filesUnderReview,
+            List<String> carriedPaths) {
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("STORY:\n").append(session.originalStory()).append("\n\n");
+
+        if (planMarkdown != null && !planMarkdown.isBlank()) {
+            sb.append("APPROVED PLAN:\n---\n").append(planMarkdown).append("\n---\n\n");
+            sb.append(planFileChecklist(planMarkdown));
+        }
+
+        if (!carriedPaths.isEmpty()) {
+            sb.append("ALREADY COMPLETE (pre-loaded and preserved — do NOT touch):\n");
+            for (String p : carriedPaths) {
+                sb.append("  ✓ ").append(p).append("\n");
+            }
+            sb.append("These files are already staged. They will remain in the diff ");
+            sb.append("automatically. Do NOT read, write, or edit them.\n\n");
+        }
+
+        if (!filesUnderReview.isEmpty()) {
+            sb.append("FILES YOU MUST REVISE (the review complained about these):\n");
+            for (String f : filesUnderReview) {
+                sb.append("  [ ] ").append(f).append("\n");
+            }
+            sb.append("\nStage a NEW version of every file above. Do NOT call submit_plan ");
+            sb.append("until each one is staged.\n\n");
+        }
+
+        ImplementationResult prev = session.implementationResult();
+        if (prev != null && prev.files() != null) {
+            sb.append("PREVIOUS ATTEMPT AT THE FILES YOU MUST REVISE:\n");
+            sb.append("----------------------------------------\n");
+            for (ImplementationResult.FileDiff f : prev.files()) {
+                if (!matchesAny(f.path(), filesUnderReview))
+                    continue;
+                sb.append("=== ").append(f.changeKind()).append(" ")
+                        .append(f.path()).append(" ===\n");
+                sb.append(f.unifiedDiff()).append("\n\n");
+            }
+            sb.append("----------------------------------------\n\n");
+        }
+
+        sb.append("REVIEW FEEDBACK:\n");
+        sb.append("----------------------------------------\n");
+        sb.append(reviewFeedback).append("\n");
+        sb.append("----------------------------------------\n\n");
+
+        sb.append("CRITICAL GUIDANCE:\n");
+        sb.append("- The file on disk is PRISTINE. read_file WILL work.\n");
+        sb.append("- Focus ONLY on the files under FILES YOU MUST REVISE.\n");
+        sb.append("- Do NOT touch files under ALREADY COMPLETE — they are preserved ");
+        sb.append("automatically by the system. Touching them wastes turns.\n");
+        sb.append("- Do NOT search_code for Java expressions like 'getX() != null'. ");
+        sb.append("Search matches class names, method names, and identifiers — not code snippets.\n");
+        sb.append("- If the review names a path, read_file it directly. Do NOT search.\n");
+        sb.append("- Use edit_file for surgical changes; write_file for full rewrites.\n");
+        sb.append("- Before calling submit_plan, verify every file above is staged and ");
+        sb.append("syntactically complete (no unbalanced braces, no partial method bodies).\n\n");
+
+        sb.append("Call ").append(TOOL_SUBMIT).append(" when every revised file is staged.");
+
+        return sb.toString();
+    }
+
+    // ==================================================================
+    // SHARED IMPLEMENTER LOOP
+    // ==================================================================
+
+    private ImplementationResult runImplementerLoop(PipelineSession session,
+            ConnectionConfig config,
+            AgentPersona persona,
+            String systemPrompt,
+            List<LlmClient.ToolDefinition> tools,
+            List<LlmClient.Message> messages,
+            int maxTurns,
+            String usageLabel,
+            String planMarkdown,
+            List<StagedChange> carriedForward) {
+
+        List<String> plannedFiles = extractPlanFiles(planMarkdown);
+        int carriedCount = carriedForward != null ? carriedForward.size() : 0;
+
         int turn = 0;
-        int maxTurns = Math.min(MAX_TURNS, 12);
+        int lastStagedCount = carriedCount;
+        int polishTurns = 0;
         String submittedSummary = null;
         String stopReason = "TURN_CAP";
 
         while (turn < maxTurns) {
             turn++;
 
-            if (turn == 5 && workspace.staged(session.id()).isEmpty()) {
+            if (turn == 5 && workspace.staged(session.id()).size() <= carriedCount) {
                 logBroadcaster.publish(LogEvent.warn(
-                        "[IMPLEMENTER] No changes staged after 4 turns — prompting to write"));
+                        "[IMPLEMENTER] No new files staged after 4 turns — prompting to write"));
                 messages.add(LlmClient.Message.user(
-                        "You have used 4 turns without staging a change. STOP reading. "
-                                + "Call edit_file or write_file NOW to stage your best attempt "
-                                + "at the fix. You can refine it in later turns."));
+                        "You have used 4 turns without staging a new file. STOP reading. "
+                                + "Call write_file or edit_file NOW to stage your best attempt."));
             }
 
             List<LlmClient.ToolDefinition> activeTools = tools;
-            if (turn >= 8 && workspace.staged(session.id()).isEmpty()) {
+            if (turn >= 8 && workspace.staged(session.id()).size() <= carriedCount) {
                 logBroadcaster.publish(LogEvent.warn(
                         "[IMPLEMENTER] Turn " + turn
-                                + " with 0 staged changes — restricting tools to write/submit"));
+                                + " — no new files; restricting tools to write/submit"));
                 activeTools = tools.stream()
-                        .filter(t -> TOOL_WRITE.equals(t.name()) || TOOL_EDIT.equals(t.name())
+                        .filter(t -> TOOL_WRITE.equals(t.name())
+                                || TOOL_EDIT.equals(t.name())
                                 || TOOL_SUBMIT.equals(t.name()))
                         .toList();
             }
 
+            int currentStaged = workspace.staged(session.id()).size();
+            if (currentStaged > 0 && currentStaged == lastStagedCount) {
+                polishTurns++;
+            } else {
+                polishTurns = 0;
+                lastStagedCount = currentStaged;
+            }
+
+            if (polishTurns >= MAX_POLISH_TURNS && turn < maxTurns) {
+                logBroadcaster.publish(LogEvent.warn(
+                        "[IMPLEMENTER] Turn " + turn + " — polish detected; forcing progress"));
+                messages.add(LlmClient.Message.user(
+                        "Stop editing the same files. If the plan lists more files, "
+                                + "stage the NEXT one now. If everything is done, "
+                                + "call " + TOOL_SUBMIT + " immediately."));
+                polishTurns = 0;
+            }
+
+            boolean isLastTurn = (turn == maxTurns);
+            LlmClient.ToolChoice toolChoice = isLastTurn
+                    ? LlmClient.ToolChoice.specific(TOOL_SUBMIT)
+                    : LlmClient.ToolChoice.auto();
+
             LlmClient.LlmRequest request = new LlmClient.LlmRequest(
                     systemPrompt,
                     List.copyOf(messages),
-                    model,
-                    maxTokens,
-                    temperature,
+                    persona.modelOverride().orElse(config.getModel()),
+                    persona.maxTokensOverride().orElse(4000),
+                    persona.temperatureOverride().orElse(0.0),
                     activeTools,
-                    LlmClient.ToolChoice.auto());
+                    toolChoice);
 
             LlmClient.LlmResponse response;
             try {
@@ -531,28 +492,20 @@ public class ImplementerService {
                 log.error("Implementer LLM call failed", e);
                 logBroadcaster.publish(LogEvent.error(
                         "[IMPLEMENTER] LLM call failed: " + e.getMessage()));
-                return failedResult("LLM call failed: " + e.getMessage(), turn);
+                return partialResult(session, submittedSummary, turn,
+                        "LLM_CALL_FAILED", plannedFiles);
             }
 
-            tokenTracker.logUsage(
-                    "IMPLEMENTER_REIMPL",
-                    response.modelUsed(),
-                    response.inputTokens(),
-                    response.outputTokens());
-
-            tokenMetrics.record(
-                    session.id(),
-                    AgentRole.IMPLEMENTER,
-                    persona.name(),
-                    response.modelUsed(),
-                    0,
-                    response.totalInputTokens(),
-                    0,
-                    response.outputTokens(),
-                    response.cacheReadTokens(),
+            tokenTracker.logUsage(usageLabel, response.modelUsed(),
+                    response.inputTokens(), response.outputTokens());
+            tokenMetrics.record(session.id(), AgentRole.IMPLEMENTER, persona.name(),
+                    response.modelUsed(), 0, response.totalInputTokens(), 0,
+                    response.outputTokens(), response.cacheReadTokens(),
                     response.cacheWriteTokens());
 
             if (!response.hasToolCalls()) {
+                logBroadcaster.publish(LogEvent.warn(
+                        "[IMPLEMENTER] Turn " + turn + " produced no tool calls; nudging"));
                 messages.add(LlmClient.Message.assistant(
                         response.text() == null ? "" : response.text()));
                 messages.add(LlmClient.Message.user(
@@ -566,8 +519,9 @@ public class ImplementerService {
             for (LlmClient.ToolCall call : response.toolCalls()) {
                 String resultText;
                 try {
-                    resultText = dispatchTool(call, repoRoot, session.id());
+                    resultText = dispatchTool(call, pickWorkingRepoRoot(), session.id());
                 } catch (Exception e) {
+                    log.warn("Tool {} failed: {}", call.name(), e.getMessage());
                     resultText = "ERROR: " + e.getMessage();
                 }
                 if (TOOL_SUBMIT.equals(call.name())) {
@@ -578,13 +532,14 @@ public class ImplementerService {
                 messages.add(LlmClient.Message.toolResult(call.id(), resultText));
             }
 
-            List<String> calledTools = response.toolCalls().stream()
-                    .map(LlmClient.ToolCall::name)
-                    .toList();
+            pruneOldToolResults(messages);
 
+            List<String> calledTools = response.toolCalls().stream()
+                    .map(this::formatToolCall)
+                    .toList();
             logBroadcaster.publish(LogEvent.info(
                     "[IMPLEMENTER] Turn " + turn + " — " + calledTools
-                            + ", " + workspace.staged(session.id()).size() + " staged change(s)"));
+                            + " · coverage " + coverageString(session, plannedFiles)));
 
             if (submitThisTurn) {
                 stopReason = "SUBMITTED";
@@ -592,67 +547,313 @@ public class ImplementerService {
             }
         }
 
-        ImplementationResult result = buildResult(
-                session.id(),
-                submittedSummary == null ? "Re-implemented" : submittedSummary,
-                turn, stopReason);
+        // ---- Coverage retry: force any missing plan files ----
+        List<String> missing = computeMissingFiles(session, plannedFiles);
+        if (!missing.isEmpty() && turn < MAX_TURNS) {
+            logBroadcaster.publish(LogEvent.warn(
+                    "[IMPLEMENTER] Coverage gap: " + missing.size()
+                            + " file(s) missing. Forcing retry with write-only tools."));
 
-        logBroadcaster.publish(LogEvent.success(
-                "[IMPLEMENTER] " + result.files().size() + " file(s), +"
-                        + result.totalAdditions() + "/-" + result.totalDeletions()
-                        + " in " + turn + " turn(s)"));
+            messages.add(LlmClient.Message.user(
+                    "COVERAGE FAILURE. The plan requires the following files "
+                            + "which are NOT yet staged:\n"
+                            + String.join("\n", missing.stream().map(p -> "  - " + p).toList())
+                            + "\n\nYour ONLY task now is to stage these files. "
+                            + "read_file is disabled. search_code is disabled. "
+                            + "Use write_file (for [NEW]) or edit_file (for [MODIFY]) "
+                            + "on each path above, one per call. Do NOT call submit_plan "
+                            + "until every path above is staged."));
 
-        return result;
+            int retryTurns = 0;
+            while (retryTurns < MAX_COVERAGE_RETRY_TURNS && turn < MAX_TURNS) {
+                turn++;
+                retryTurns++;
+
+                List<LlmClient.ToolDefinition> forceWrite = tools.stream()
+                        .filter(t -> TOOL_WRITE.equals(t.name())
+                                || TOOL_EDIT.equals(t.name())
+                                || TOOL_SUBMIT.equals(t.name()))
+                        .toList();
+
+                LlmClient.LlmRequest retryReq = new LlmClient.LlmRequest(
+                        systemPrompt,
+                        List.copyOf(messages),
+                        persona.modelOverride().orElse(config.getModel()),
+                        persona.maxTokensOverride().orElse(4000),
+                        persona.temperatureOverride().orElse(0.0),
+                        forceWrite,
+                        retryTurns == MAX_COVERAGE_RETRY_TURNS
+                                ? LlmClient.ToolChoice.specific(TOOL_SUBMIT)
+                                : LlmClient.ToolChoice.auto());
+
+                LlmClient.LlmResponse resp;
+                try {
+                    resp = llmRouter.complete(config, retryReq);
+                } catch (Exception e) {
+                    break;
+                }
+
+                tokenTracker.logUsage(usageLabel + "_RETRY", resp.modelUsed(),
+                        resp.inputTokens(), resp.outputTokens());
+                tokenMetrics.record(session.id(), AgentRole.IMPLEMENTER, persona.name(),
+                        resp.modelUsed(), 0, resp.totalInputTokens(), 0,
+                        resp.outputTokens(), resp.cacheReadTokens(),
+                        resp.cacheWriteTokens());
+
+                if (!resp.hasToolCalls())
+                    continue;
+                messages.add(LlmClient.Message.assistantWithToolCalls(resp.toolCalls()));
+
+                for (LlmClient.ToolCall call : resp.toolCalls()) {
+                    String rt;
+                    try {
+                        rt = dispatchTool(call, pickWorkingRepoRoot(), session.id());
+                    } catch (Exception e) {
+                        rt = "ERROR: " + e.getMessage();
+                    }
+                    if (TOOL_SUBMIT.equals(call.name())) {
+                        Object s = call.arguments().get("summary");
+                        submittedSummary = s == null ? "Recovered" : String.valueOf(s);
+                    }
+                    messages.add(LlmClient.Message.toolResult(call.id(), rt));
+                }
+
+                List<String> retryTools = resp.toolCalls().stream()
+                        .map(this::formatToolCall).toList();
+                logBroadcaster.publish(LogEvent.info(
+                        "[IMPLEMENTER] Retry " + retryTurns + " — " + retryTools
+                                + " · coverage " + coverageString(session, plannedFiles)));
+
+                if (resp.toolCalls().stream()
+                        .anyMatch(c -> TOOL_SUBMIT.equals(c.name()))) {
+                    break;
+                }
+            }
+
+            missing = computeMissingFiles(session, plannedFiles);
+        }
+
+        List<String> finalMissing = computeMissingFiles(session, plannedFiles);
+        if (!finalMissing.isEmpty()) {
+            logBroadcaster.publish(LogEvent.warn(
+                    "[IMPLEMENTER] Coverage incomplete — still missing: " + finalMissing));
+            stopReason = "INCOMPLETE";
+        } else if (!plannedFiles.isEmpty()) {
+            logBroadcaster.publish(LogEvent.info(
+                    "[IMPLEMENTER] Coverage OK — all " + plannedFiles.size()
+                            + " plan file(s) staged"));
+        }
+
+        return partialResult(session, submittedSummary, turn, stopReason, plannedFiles);
     }
 
-    private String composeReimplementMessage(PipelineSession session,
-            String planMarkdown,
-            String reviewFeedback) {
-        StringBuilder sb = new StringBuilder();
+    // ==================================================================
+    // COVERAGE / LOGGING HELPERS
+    // ==================================================================
 
-        sb.append("STORY:\n").append(session.originalStory()).append("\n\n");
+    private String formatToolCall(LlmClient.ToolCall call) {
+        String name = call.name();
+        Map<String, Object> args = call.arguments();
+        if (args == null || args.isEmpty())
+            return name;
+        String key = switch (name) {
+            case TOOL_READ -> "path";
+            case TOOL_SEARCH -> "query";
+            case TOOL_WRITE -> "path";
+            case TOOL_EDIT -> "path";
+            default -> null;
+        };
+        if (key == null)
+            return name;
+        Object val = args.get(key);
+        if (val == null)
+            return name;
+        String s = String.valueOf(val);
+        if (s.length() > 50)
+            s = s.substring(0, 47) + "...";
+        return name + "(" + key + "=" + s + ")";
+    }
 
-        if (planMarkdown != null && !planMarkdown.isBlank()) {
-            sb.append("APPROVED PLAN:\n---\n").append(planMarkdown).append("\n---\n\n");
+    private String coverageString(PipelineSession session, List<String> plannedFiles) {
+        if (plannedFiles.isEmpty()) {
+            return workspace.staged(session.id()).size() + " staged";
         }
-
-        ImplementationResult prev = session.implementationResult();
-        if (prev != null && prev.files() != null && !prev.files().isEmpty()) {
-            sb.append("PREVIOUS ATTEMPT (this is the diff that was reviewed and found lacking):\n");
-            sb.append("----------------------------------------\n");
-            for (ImplementationResult.FileDiff f : prev.files()) {
-                sb.append("=== ").append(f.changeKind()).append(" ")
-                        .append(f.path()).append(" ===\n");
-                sb.append(f.unifiedDiff()).append("\n\n");
+        Set<String> staged = new HashSet<>();
+        for (StagedChange c : workspace.staged(session.id())) {
+            staged.add(c.path().replace('\\', '/'));
+        }
+        int covered = 0;
+        for (String p : plannedFiles) {
+            String norm = p.replace('\\', '/');
+            for (String s : staged) {
+                if (s.equals(norm) || s.endsWith(norm) || norm.endsWith(s)) {
+                    covered++;
+                    break;
+                }
             }
-            sb.append("----------------------------------------\n\n");
+        }
+        return covered + "/" + plannedFiles.size();
+    }
+
+    private List<String> computeMissingFiles(PipelineSession session,
+            List<String> plannedFiles) {
+        List<String> missing = new ArrayList<>();
+        if (plannedFiles.isEmpty())
+            return missing;
+        Set<String> staged = new HashSet<>();
+        for (StagedChange c : workspace.staged(session.id())) {
+            staged.add(c.path().replace('\\', '/'));
+        }
+        for (String p : plannedFiles) {
+            String norm = p.replace('\\', '/');
+            boolean present = false;
+            for (String s : staged) {
+                if (s.equals(norm) || s.endsWith(norm) || norm.endsWith(s)) {
+                    present = true;
+                    break;
+                }
+            }
+            if (!present)
+                missing.add(p);
+        }
+        return missing;
+    }
+
+    private void pruneOldToolResults(List<LlmClient.Message> messages) {
+        int kept = 0;
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            LlmClient.Message m = messages.get(i);
+            if ("tool".equals(m.role())) {
+                kept++;
+                if (kept > CONTEXT_PRUNE_KEEP_LAST) {
+                    String content = m.content() == null ? "" : m.content();
+                    if (content.length() > CONTEXT_PRUNE_THRESHOLD) {
+                        messages.set(i, LlmClient.Message.toolResult(
+                                m.toolCallId(),
+                                "... [earlier tool result omitted to save context]"));
+                    }
+                }
+            }
+        }
+    }
+
+    // ==================================================================
+    // PLAN FILE EXTRACTION
+    // ==================================================================
+
+    private List<String> extractPlanFiles(String markdown) {
+        List<String> files = new ArrayList<>();
+        if (markdown == null || markdown.isBlank())
+            return files;
+
+        boolean inFiles = false;
+        for (String line : markdown.split("\\r?\\n")) {
+            String t = line.trim();
+            if (t.startsWith("## ")) {
+                inFiles = t.substring(3).toLowerCase().contains("file");
+                continue;
+            }
+            if (!inFiles)
+                continue;
+
+            Matcher m = BACKTICK_PATH.matcher(t);
+            boolean anyMatched = false;
+            while (m.find()) {
+                String path = MARKER_PATTERN.matcher(m.group(1)).replaceFirst("").trim();
+                if (path.contains(".") && !path.startsWith("http")) {
+                    files.add(path);
+                    anyMatched = true;
+                }
+            }
+            if (!anyMatched && t.startsWith("- ")) {
+                String clean = MARKER_PATTERN.matcher(
+                        t.substring(2).replaceAll("[`*]", "").trim())
+                        .replaceFirst("").trim();
+                if (!clean.isEmpty() && clean.contains(".") && !clean.contains(" ")) {
+                    files.add(clean);
+                }
+            }
+        }
+        return files;
+    }
+
+    private List<String> extractPlanFilesWithMarkers(String markdown) {
+        List<String> files = new ArrayList<>();
+        if (markdown == null || markdown.isBlank())
+            return files;
+
+        boolean inFiles = false;
+        for (String line : markdown.split("\\r?\\n")) {
+            String t = line.trim();
+            if (t.startsWith("## ")) {
+                inFiles = t.substring(3).toLowerCase().contains("file");
+                continue;
+            }
+            if (!inFiles)
+                continue;
+
+            Matcher m = BACKTICK_PATH.matcher(t);
+            while (m.find()) {
+                String raw = m.group(1).trim();
+                if (raw.contains(".") && !raw.startsWith("http")) {
+                    files.add(raw);
+                }
+            }
+        }
+        return files;
+    }
+
+    private String planFileChecklist(String planMarkdown) {
+        List<String> files = extractPlanFilesWithMarkers(planMarkdown);
+        if (files.isEmpty())
+            return "";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("REQUIRED FILES (from the plan — every one must be staged before submit):\n");
+        for (String f : files) {
+            sb.append("  [ ] ").append(f).append("\n");
+        }
+        sb.append("\n[NEW] = file does not exist; create it with write_file.\n");
+        sb.append("[MODIFY] = file exists; read it first, then edit.\n");
+        sb.append("Do NOT call submit_plan until every file above is staged.\n\n");
+        return sb.toString();
+    }
+
+    private Set<String> extractFilesFromReview(String reviewText,
+            List<ImplementationResult.FileDiff> previousFiles) {
+        Set<String> files = new HashSet<>();
+        if (reviewText == null || reviewText.isBlank())
+            return files;
+
+        Matcher m = JAVA_PATH.matcher(reviewText);
+        while (m.find()) {
+            files.add(m.group(1).replace('\\', '/').trim());
         }
 
-        sb.append("FAILURE REPORT FROM THE TEST HARNESS:\n");
-        sb.append("----------------------------------------\n");
-        sb.append(reviewFeedback).append("\n");
-        sb.append("----------------------------------------\n\n");
+        if (previousFiles != null) {
+            for (ImplementationResult.FileDiff f : previousFiles) {
+                String fileName = Paths.get(f.path()).getFileName().toString();
+                String className = fileName.replaceAll("\\.[^.]+$", "");
+                if (className.length() >= 5 && reviewText.contains(className)) {
+                    files.add(f.path().replace('\\', '/'));
+                }
+            }
+        }
+        return files;
+    }
 
-        sb.append("CRITICAL GUIDANCE:\n");
-        sb.append("- The file on disk is currently PRISTINE. The previous diff was undone ");
-        sb.append("before this run. Use read_file to inspect the current state — read_file ");
-        sb.append("WILL work and WILL return the original, unmodified file.\n");
-        sb.append("- If the report above shows a COMPILATION ERROR, the compiler named ");
-        sb.append("specific files and line numbers. Read the file at those exact lines. ");
-        sb.append("The fix must make the file compile.\n");
-        sb.append("- Do NOT make cosmetic changes to already-valid lines. ");
-        sb.append("Do NOT reformat or reorder code that already compiles. ");
-        sb.append("Address ONLY the specific error the compiler reported.\n");
-        sb.append("- When the previous diff needs to be replaced entirely (e.g. it ");
-        sb.append("introduced a syntax error), use write_file with the full corrected ");
-        sb.append("file content. Do not use edit_file for that case.\n");
-        sb.append("- Before calling submit_plan, verify the file you are producing is ");
-        sb.append("syntactically complete: no unbalanced braces, no stray punctuation, ");
-        sb.append("no missing semicolons or type declarations.\n\n");
-
-        sb.append("Call ").append(TOOL_SUBMIT).append(" when the fix is staged.");
-
-        return sb.toString();
+    private boolean matchesAny(String stagedPath, Set<String> reviewPaths) {
+        if (stagedPath == null)
+            return false;
+        String normalized = stagedPath.replace('\\', '/');
+        for (String rp : reviewPaths) {
+            if (normalized.equals(rp)
+                    || normalized.endsWith(rp)
+                    || rp.endsWith(normalized)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ==================================================================
@@ -679,8 +880,12 @@ public class ImplementerService {
         Path target = safeResolve(repoRoot, rel);
         if (target == null)
             return "ERROR: path escapes repo root";
-        if (!Files.isRegularFile(target))
-            return "ERROR: not a file: " + rel;
+        if (!Files.isRegularFile(target)) {
+            return "FILE DOES NOT EXIST: " + rel
+                    + "\nIf the plan marked this file [NEW], this is expected — "
+                    + "create it with write_file."
+                    + "\nIf the plan marked this file [MODIFY], the path is wrong.";
+        }
         if (Files.size(target) > MAX_FILE_EDIT_BYTES) {
             return "ERROR: file too large to read (" + Files.size(target) + " bytes)";
         }
@@ -810,95 +1015,100 @@ public class ImplementerService {
                 turnCount, stopReason, LocalDateTime.now());
     }
 
+    private ImplementationResult partialResult(PipelineSession session,
+            String summary, int turnCount, String stopReason,
+            List<String> plannedFiles) {
+        ImplementationResult built = buildResult(session.id(),
+                summary == null ? "Implementer finished" : summary,
+                turnCount, stopReason);
+
+        int planned = plannedFiles != null ? plannedFiles.size() : 0;
+        int staged = built.files() != null ? built.files().size() : 0;
+
+        logBroadcaster.publish(LogEvent.success(
+                "[IMPLEMENTER] " + staged + " file(s), +"
+                        + built.totalAdditions() + "/-" + built.totalDeletions()
+                        + " in " + turnCount + " turn(s)"
+                        + (planned > 0 ? " · " + staged + "/" + planned + " planned" : "")));
+
+        return built;
+    }
+
     private ImplementationResult failedResult(String reason, int turnCount) {
         return new ImplementationResult(
                 reason, List.of(), 0, 0, turnCount, "ERROR", LocalDateTime.now());
     }
 
     // ==================================================================
-    // Prompt + tool schemas
+    // Prompt
     // ==================================================================
 
     private static final String IMPLEMENTER_GUIDANCE = """
-            You are the IMPLEMENTER agent. You are given a clarifier's structured
-            analysis and the user's answers. Your job is to propose the concrete
-            code changes that satisfy the story.
+            You are the IMPLEMENTER agent. Your job is to produce the concrete
+            code changes that satisfy the story or approved implementation plan.
 
             TURN BUDGET:
-            You have at most 15 turns. Budget them:
-            - Turns 1-3: explore. Read the 1-2 files most likely to contain the fix.
-            - Turns 4-10: write. Use edit_file or write_file to stage every change.
-            - Turns 11-15: finish. Call submit_plan.
+            - Turns 1-3: explore. Read the files named in the plan.
+            - Turns 4-8: write. Stage every required change.
+            - Turns 9+: finish. Call submit_plan.
 
-            After turn 5, if you have not staged at least one change, stop reading
-            and write. You can always revise in a later turn.
+            MULTI-FILE CHANGES ARE THE NORM:
+            - If the plan lists N files, stage changes in all N files.
+            - Do not stop after updating the first file.
+            - Move from file to file: read it, update it, continue to the next.
+            - Do not spend multiple turns repeatedly editing the same file while
+              other required files remain untouched.
+
+            HANDLING [NEW] FILES:
+            - When the plan marks a file as [NEW], it does not exist yet.
+            - Do NOT search_code for it. Search will return nothing.
+            - The ONLY correct action is write_file with the full file content.
+            - If read_file returns "FILE DOES NOT EXIST" on a [NEW] file, the very
+              next tool call in the SAME turn MUST be write_file for that path.
+
+            SEARCH DISCIPLINE:
+            - search_code matches class names, method names, and identifiers.
+              It does NOT match Java expressions like "getX() != null" or method
+              bodies. Never use it to search for code snippets.
+            - If the plan gives you a path, read_file it directly. Do NOT search.
+            - For refactor stories ("extract X into Y"), read the source file the
+              plan names. Do NOT search for callers unless the plan asks for it.
 
             WORKFLOW:
-            1. Use search_code and read_file to locate the target code.
-            2. Use edit_file for surgical changes to existing files.
-            3. Use write_file to create new files.
-            4. When done, call submit_plan with a one-sentence summary.
+            1. Read the plan's REQUIRED FILES list.
+            2. For each required file, attempt read_file exactly once.
+               - If the file exists, make the change with edit_file or write_file.
+               - If it does not exist ([NEW]), proceed directly to write_file.
+            3. Use search_code only to understand existing code and dependencies.
+            4. When every file in the list has been staged, call submit_plan.
 
             RULES:
-            - Never write outside the repo root. Paths are relative.
-            - Prefer edit_file over write_file for existing files.
-            - Keep changes minimal and idiomatic to the codebase's style.
-            - Do not modify unrelated files.
-            - If you cannot complete the change, still call submit_plan
-              and explain why in the summary.
+            - Never write outside the repository root. Paths are relative.
+            - Touch every file required by the story, plan, or review feedback.
+            - A read_file error on a file that must be created is NOT a failure.
+            - Do not spend more than one turn searching for a [NEW] file.
+            - If you cannot complete a file, still call submit_plan and explain.
             """;
-
-    private String composeUserMessage(PipelineSession session) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("STORY:\n").append(session.originalStory()).append("\n\n");
-
-        if (!session.qaHistory().isEmpty()) {
-            sb.append("USER ANSWERS:\n");
-            int i = 1;
-            for (AnsweredQuestion a : session.qaHistory()) {
-                if (a.question() != null && !a.question().isBlank()) {
-                    sb.append("Q").append(i).append(": ").append(a.question()).append("\n");
-                }
-                sb.append("A").append(i).append(": ").append(a.answer()).append("\n\n");
-                i++;
-            }
-        }
-
-        if (session.lastResult() != null) {
-            sb.append("CLARIFIER SUMMARY:\n")
-                    .append(session.lastResult().summary()).append("\n\n");
-            if (session.lastResult().assumptionsMade() != null
-                    && !session.lastResult().assumptionsMade().isEmpty()) {
-                sb.append("ASSUMPTIONS:\n");
-                for (String a : session.lastResult().assumptionsMade()) {
-                    sb.append("- ").append(a).append("\n");
-                }
-                sb.append("\n");
-            }
-        }
-
-        sb.append("Now propose the implementation. Start by searching for "
-                + "relevant code, then edit or create the necessary files. "
-                + "Call ").append(TOOL_SUBMIT).append(" when done.");
-        return sb.toString();
-    }
 
     private List<LlmClient.ToolDefinition> buildTools() {
         return List.of(
                 new LlmClient.ToolDefinition(TOOL_SEARCH,
-                        "Search the codebase using BM25. Returns the top matching chunks.",
+                        "Search the codebase using BM25. Matches class names, method "
+                                + "names, and identifiers — NOT Java expressions or code snippets.",
                         schema(Map.of(
-                                "query", prop("string", "Natural-language or keyword query")),
+                                "query", prop("string", "Keyword query (class/method/identifier names)")),
                                 List.of("query"))),
 
                 new LlmClient.ToolDefinition(TOOL_READ,
-                        "Read a file relative to the repo root.",
+                        "Read a file relative to the repo root. Returns FILE DOES NOT "
+                                + "EXIST for missing files.",
                         schema(Map.of(
                                 "path", prop("string", "File path relative to repo root")),
                                 List.of("path"))),
 
                 new LlmClient.ToolDefinition(TOOL_WRITE,
-                        "Create a new file or fully overwrite an existing one.",
+                        "Create a new file or fully overwrite an existing one. "
+                                + "Required for [NEW] files.",
                         schema(Map.of(
                                 "path", prop("string", "File path relative to repo root"),
                                 "content", prop("string", "Full file contents")),
@@ -914,9 +1124,10 @@ public class ImplementerService {
                                 List.of("path", "old_string", "new_string"))),
 
                 new LlmClient.ToolDefinition(TOOL_SUBMIT,
-                        "Submit the completed plan. Call this once all edits are staged.",
+                        "Submit the completed implementation. Call this once every "
+                                + "required file is staged.",
                         schema(Map.of(
-                                "summary", prop("string", "One-sentence summary of the change")),
+                                "summary", prop("string", "One-sentence summary; note any incomplete files")),
                                 List.of("summary"))));
     }
 
@@ -946,6 +1157,14 @@ public class ImplementerService {
             }
         }
         return null;
+    }
+
+    private Path pickWorkingRepoRoot() {
+        RepositoryConfig repo = pickWorkingRepo();
+        if (repo == null) {
+            throw new IllegalStateException("No indexed repository available");
+        }
+        return Paths.get(repo.getPath()).toAbsolutePath().normalize();
     }
 
     private Path safeResolve(Path repoRoot, String relative) {
