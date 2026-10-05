@@ -458,6 +458,12 @@ public class ConnectionController {
             return ResponseEntity.status(404).body(Map.of("error", "Session not found"));
         }
 
+        // Safety: restore any dirty state a prior crash may have left behind.
+        // No-op on clean repos (undo returns "No backups found").
+        ApplyResult preUndo = applyService.undo(session);
+        logBroadcaster.publish(LogEvent.info(
+                "[FIX] Pre-run undo: " + preUndo.message()));
+
         if (session.stage() != PipelineStage.READY_TO_IMPLEMENT) {
             return ResponseEntity.badRequest().body(Map.of(
                     "error", "Session is in stage " + session.stage()
@@ -800,6 +806,11 @@ public class ConnectionController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(404).body(Map.of("error", "Session not found"));
         }
+
+        // Safety: restore any dirty state a prior crash may have left behind.
+        ApplyResult preUndo = applyService.undo(session);
+        logBroadcaster.publish(LogEvent.info(
+                "[REIMPL] Pre-run undo: " + preUndo.message()));
 
         Artifact plan = artifactStore
                 .findBySessionAndKind(sessionId, ArtifactKind.PLAN)

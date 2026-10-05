@@ -74,6 +74,7 @@ public class ImplementerService {
     private final RetrievalService retrievalService;
     private final WorkspaceSessionStore workspace;
     private final AppConfigManager appConfigManager;
+    private final ApplyService applyService;
 
     public ImplementerService(LlmClientRouter llmRouter,
             ConnectionConfigService configService,
@@ -83,7 +84,8 @@ public class ImplementerService {
             TokenMetricsService tokenMetrics,
             RetrievalService retrievalService,
             WorkspaceSessionStore workspace,
-            AppConfigManager appConfigManager) {
+            AppConfigManager appConfigManager,
+            ApplyService applyService) {
         this.llmRouter = llmRouter;
         this.configService = configService;
         this.agentRegistry = agentRegistry;
@@ -93,6 +95,7 @@ public class ImplementerService {
         this.retrievalService = retrievalService;
         this.workspace = workspace;
         this.appConfigManager = appConfigManager;
+        this.applyService = applyService;
     }
 
     // ==================================================================
@@ -113,6 +116,15 @@ public class ImplementerService {
                 "[IMPLEMENTER] Working repo: " + repo.getId() + " at " + repoRoot));
         logBroadcaster.publish(LogEvent.info(
                 "[IMPLEMENTER] Executing approved plan (" + planMarkdown.length() + " chars)"));
+
+        // Safety: undo any dirty state a prior crash left behind before
+        // staging new changes. No-op on clean repos.
+        ApplyResult preUndo = applyService.undo(session);
+        if (preUndo.ok()) {
+            logBroadcaster.publish(LogEvent.warn(
+                    "[IMPLEMENTER] Pre-run undo restored "
+                            + preUndo.fileCount() + " file(s) from prior state"));
+        }
 
         List<String> plannedFiles = extractPlanFiles(planMarkdown);
         if (!plannedFiles.isEmpty()) {
